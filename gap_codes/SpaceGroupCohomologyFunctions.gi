@@ -46,18 +46,10 @@ LoadPackage("HAP");
 #####################################################################
 
 GF2ToZ:=function(v)
-local v0,k;
-
-v0:=[];
-for k in [1..Length(v)] do
-    if v[k] = 0*Z(2) then
-    v0[k]:=0;
-    else
-        v0[k]:=1;
-    fi;
-od;
-
-return v0;
+# Convert a GF(2) vector to a 0/1 integer vector.
+# IntFFE(0*Z(2))=0 and IntFFE(Z(2))=1, so this matches the old
+# elementwise "=0*Z(2) -> 0 else 1" loop for any GF(2) field-element input.
+return List(v, IntFFE);
 end;
 
 #####################################################################
@@ -160,6 +152,9 @@ n:=arg[2];
 Dimension:=R!.dimension;
 Boundary:=R!.boundary;
 toggle := true;
+if Length(arg) > 2 then       #optional 3rd arg now actually selects behavior;
+    toggle := arg[3];         #all existing callers pass `true`, so behavior is unchanged.
+fi;
 
 if n <0 then return false; fi;
 if n=0 then return [0]; fi;
@@ -176,31 +171,27 @@ M2:=[];
 #M2 is Dim(n+1) x Dim(n);
 
 for i in [1..Dimension(n)] do
-row:=[];
-        for j in [1..Dimension(n-1)] do
-        sum:=0;
-                for x in Boundary(n,i) do
-                if AbsoluteValue(x[1])=j then
-                sum := sum + SignInt(x[1]);
-                fi;
-                od;
-        row[j]:= RemInt(sum,2);
-        od;
+    row:=List([1..Dimension(n-1)],j->0);
+    for x in Boundary(n,i) do                #scatter the sparse boundary directly into its target column
+        j:=AbsoluteValue(x[1]);
+        row[j]:= row[j] + SignInt(x[1]);
+    od;
+    for j in [1..Dimension(n-1)] do
+        row[j]:= RemInt(row[j],2);
+    od;
 M1[i]:=row;
 od;
 
 if Dimension(n+1)>0 then
 for i in [1..Dimension(n+1)] do
-row:=[];
-        for j in [1..Dimension(n)] do
-        sum:=0;
-                for x in Boundary(n+1,i) do
-                if AbsoluteValue(x[1])=j then
-                sum := sum + SignInt(x[1]);
-                fi;
-                od;
-        row[j]:= RemInt(sum,2);
-       	od;
+    row:=List([1..Dimension(n)],j->0);
+    for x in Boundary(n+1,i) do               #scatter the sparse boundary directly into its target column
+        j:=AbsoluteValue(x[1]);
+        row[j]:= row[j] + SignInt(x[1]);
+    od;
+    for j in [1..Dimension(n)] do
+        row[j]:= RemInt(row[j],2);
+    od;
 M2[i]:=row;
 od;
 
@@ -291,7 +282,7 @@ end;
 
 #####################################################################
 ClassToCycle:=function(u)
-local v,w, i, temp;
+local v,w, i, j, temp;
 
 w:=List([1..Dimension(n)],x->0);
 
@@ -300,8 +291,8 @@ for i in [1..Dimension(n)] do
 temp := 0;
 for j in [1..cohdim] do
 temp := temp + CobandCoc[Length(CobandCoc)-cohdim+j][i]*u[j];
-w[i] := temp mod 2;
 od;
+w[i] := temp mod 2;
 od;
 fi;
 
@@ -542,7 +533,7 @@ end;
 Mod2RingGensAndRels:=function(arg)
 local
         R,n,GG,IT,Gen0,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,ss6b,ss6,spacedim,GenDim1to4,GenDeg1to4,
-        Gens, GensLett, Cupped, CupRelsLett, CupTemp, CupTempLett,
+        Gens, GensLett, allGens, zeroH, Cupped, CupRelsLett, CupTemp, CupTempLett,
         CupBase2all,CupBase2,CupBase3,CupBase4,CupBase5,CupBase6,CupBase7,CupBase8,
         CupBase1Lett, CupBase2Lett,CupBase3Lett,CupBase4Lett,CupBase5Lett,CupBase6Lett,CupBase7Lett,CupBase8Lett,
         CupRel2Lett, CupRel3Lett, CupRel4Lett, CupRel5Lett, CupRel6Lett, CupRel7Lett, CupRel8Lett,
@@ -555,11 +546,14 @@ local
         #NonNegativeVec,
         i,j,p,q,r,s,t,u,v,w,x,y,z, ln, rk, rk1, ip,iq,ir,is,it,iu,iv,iw,ix,iy,iz,sw;
 
-#Standard input: arg[1] = IT (# of space group), arg[2] = n (relations up to deg(n) is calculated)
-#e.g.: Mod2RingGensAndRels(89);
-#e.g.: Mod2RingGensAndRels(89,3);
-#e.g.: Mod2RingGensAndRels(89,3,R89);
-#e.g.: Mod2RingGensAndRels(89,3,R89,Gens);
+#Arguments: arg[1] = IT (# of space group); arg[2] = spacedim (2 or 3, default 3);
+#           arg[3] = R (resolution); arg[4] = Gens (generators).
+#The highest relation degree is NOT taken from the arguments; it is derived from the
+#resolution length as n := Length(Size(R))-1.
+#e.g.: Mod2RingGensAndRels(89);                 #builds its own resolution+generators
+#e.g.: Mod2RingGensAndRels(89,3);               #3 = spacedim
+#e.g.: Mod2RingGensAndRels(89,3,R89);           #(R received, generators recomputed)
+#e.g.: Mod2RingGensAndRels(89,3,R89,Gens);      #standard call from SpaceGroupCohomologyRingGapInterface
 
 
 
@@ -588,11 +582,26 @@ if Length(arg)<=2 then
         GG := Image(IsomorphismPcpGroup(SpaceGroupBBNWZ(spacedim,IT)));
     fi;
     
+    #Choose the resolution length (n is re-derived from the resolution below at "n:=Length(Size(R))-1").
+    #This mirrors the policy in SpaceGroupCohomologyRingGapInterface: length 9 for the groups that
+    #need degree-7/8 relations, 7 for IT<=220, and 6 for IT>220.
+    if (IT in [108, 109, 120, 130, 136, 140, 142, 197, 204]) = true then
+        n := 8;
+    elif IT <= 220 then
+        n := 6;
+    else
+        n := 5;
+    fi;
     R := ResolutionAlmostCrystalGroup(GG,n+1);            #Construct resolution;
     Gens:=Mod2RingGenerators(R,4,spacedim);               #Calculate generators
     
 
-else                                                      #otherwise, Length(arg) = 4
+elif Length(arg) = 3 then                                 #resolution given, generators not
+
+    R := arg[3];                                          #receive resolution from input;
+    Gens:=Mod2RingGenerators(R,4,spacedim);               #recompute generators from the given resolution;
+
+else                                                      #Length(arg) >= 4
 
     R := arg[3];                                          #receive resolution from input;
     Gens:=arg[4];                                         #receive generators from input;
@@ -677,6 +686,8 @@ GensLett:=CohomologyBasis(List([1..(Length(Gen1)+Length(Gen2)+Length(Gen3)+Lengt
 
 Gen0 := List([1..(Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5))],i->0);
 
+allGens := Concatenation([Gen0],GensLett);   #computed once; GensLett/Gen0 do not change afterwards (replaces repeated rebuilds in the relation-reduction loops)
+
 TR:=HomToIntegersModP(R,2);            #Apply the Hom functor.
 
 #if Length(Gen4) = 0 then
@@ -692,6 +703,14 @@ n:=Length(Size(R))-1;     #This is the highest degree at which the relations are
 CB:=[];
 for p in [1..n] do
 CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
+od;
+
+#Cache the all-zero class vector at each degree once. The coboundary test below
+#("is u-cup-v zero in cohomology?") otherwise rebuilds List([1..Cohomology(TR,k)],x->0)
+#on every cup product. Degrees 1..n are exactly those used (and computable) on every path.
+zeroH:=[];
+for p in [1..n] do
+    zeroH[p]:=List([1..Cohomology(TR,p)],x->0);
 od;
 
 #Print("Number of Generators at degrees 1-4: ");
@@ -731,7 +750,7 @@ for u in Gen1 do
         if iv>iu then
             cupped := Mod2CupProduct(R,u,v,1,1,CB[1],CB[1],CB[2]);
     
-            if cupped = List([1..Cohomology(TR,2)],x->0) then   #if u-cup-v is a coboundary
+            if cupped = zeroH[2] then   #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel2Lett,[[Lett1]]);
             else
@@ -764,7 +783,7 @@ for u in Gen1 do
     Lett1 := GensLett[iu]+GensLett[iu];
     cupped := Mod2CupProduct(R,u,u,1,1,CB[1],CB[1],CB[2]);
     
-        if cupped = List([1..Cohomology(TR,2)],x->0) then   #if u-cup-u is a coboundary
+        if cupped = zeroH[2] then   #if u-cup-u is a coboundary
             Append(CupRelsLett,[Lett1]);
             Append(CupRel2Lett,[[Lett1]]);
         else
@@ -848,9 +867,9 @@ RelReduceMat  := [];
 #### Begin preparation for relation reduction
 ####
 iu := 1;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
             if (p+q+r)*GenDeg1to4 = 3 then
                 Append(RelReduceLett,[p+q+r]);
                 iu := iu+1;
@@ -906,7 +925,7 @@ for u in CupBase2 do
 
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if (cupped = List([1..Cohomology(TR,3)],x->0)) then         #if u-cup-v is a coboundary
+        if (cupped = zeroH[3]) then         #if u-cup-v is a coboundary
             solrel := [Lett1];
         else
             if CupBase3 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1052,10 +1071,10 @@ RelReduceMat  := [];
 #### Begin preparation for relation reduction
 ####
 iu := 1;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
                 if (p+q+r+s)*GenDeg1to4 = 4 then
                     Append(RelReduceLett,[p+q+r+s]);
                     iu := iu+1;
@@ -1080,8 +1099,8 @@ for u in CupBase1Lett do
         #Print("RelReduceMat:",RelReduceMat,"\n");
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
         if (p+q)*GenDeg1to4 = 2 then
             for v in CupRel2Lett do
                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -1127,7 +1146,7 @@ for u in CupBase3 do
 
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,4)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[4] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase4 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1225,7 +1244,7 @@ for u in Gen2 do
         
             Lett1 := GensLett[Length(Gen1)+iu] + GensLett[Length(Gen1)+iv];
         
-            if cupped = List([1..Cohomology(TR,4)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[4] then         #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel4Lett,[[Lett1]]);
             elif CupBase4 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
@@ -1314,15 +1333,15 @@ RelReduceMat  := [];
 iu := 1;
 
 for ip in [1..(Sum(GenDim1to4)+1)] do
-    p := Concatenation([Gen0],GensLett)[ip];
+    p := allGens[ip];
     for iq in [ip..(Sum(GenDim1to4)+1)] do
-        q := Concatenation([Gen0],GensLett)[iq];
+        q := allGens[iq];
         for ir in [iq..(Sum(GenDim1to4)+1)] do
-            r := Concatenation([Gen0],GensLett)[ir];
+            r := allGens[ir];
             for is in [ir..(Sum(GenDim1to4)+1)] do
-                s := Concatenation([Gen0],GensLett)[is];
+                s := allGens[is];
                 for it in [is..(Sum(GenDim1to4)+1)] do
-                    t := Concatenation([Gen0],GensLett)[it];
+                    t := allGens[it];
                     if (p+q+r+s+t)*GenDeg1to4 = 5 then
                         Append(RelReduceLett,[p+q+r+s+t]);
                         iu := iu+1;
@@ -1346,8 +1365,8 @@ for u in CupBase1Lett do
         Append(RelReduceMat,[RelReduceVec]);
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
         if (p+q)*GenDeg1to4 = 2 then
             for v in CupRel3Lett do
                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -1359,9 +1378,9 @@ for p in Concatenation([Gen0],GensLett) do
         fi;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
             if (p+q+r)*GenDeg1to4 = 3 then
                 for v in CupRel2Lett do
                      RelReduceVec := List([1..RelRedLen],x->0);
@@ -1442,7 +1461,7 @@ for u in CupBase4 do
         
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,5)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[5] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase5 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1551,7 +1570,7 @@ for u in Gen3 do
         
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,5)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[5] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase5 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1701,15 +1720,13 @@ if Length(Size(R)) = 6 then
     #M1 is Dim(R6) x Dim(R5);
 
     for i in [1..R!.dimension(6)] do
-        row:=[];
+        row:=List([1..R!.dimension(5)],j->0);
+        for x in R!.boundary(6,i) do          #scatter the sparse boundary directly into its target column
+            j:=AbsoluteValue(x[1]);
+            row[j]:= row[j] + SignInt(x[1]);
+        od;
         for j in [1..R!.dimension(5)] do
-            sum:=0;
-            for x in R!.boundary(6,i) do
-                if AbsoluteValue(x[1])=j then
-                    sum := sum + SignInt(x[1]);
-                fi;
-            od;
-        row[j]:= RemInt(sum,2);
+            row[j]:= RemInt(row[j],2);
         od;
     M1[i]:=row;
     od;
@@ -1736,17 +1753,17 @@ fi;
 ####
 iv := 1;
 for ip in [1..(Sum(GenDim1to4)+1)] do
-    p := Concatenation([Gen0],GensLett)[ip];
+    p := allGens[ip];
     for iq in [ip..(Sum(GenDim1to4)+1)] do
-        q := Concatenation([Gen0],GensLett)[iq];
+        q := allGens[iq];
         for ir in [iq..(Sum(GenDim1to4)+1)] do
-            r := Concatenation([Gen0],GensLett)[ir];
+            r := allGens[ir];
             for is in [ir..(Sum(GenDim1to4)+1)] do
-                s := Concatenation([Gen0],GensLett)[is];
+                s := allGens[is];
                 for it in [is..(Sum(GenDim1to4)+1)] do
-                    t := Concatenation([Gen0],GensLett)[it];
+                    t := allGens[it];
                     for iu in [it..(Sum(GenDim1to4)+1)]  do
-                        u := Concatenation([Gen0],GensLett)[iu];
+                        u := allGens[iu];
                         if (p+q+r+s+t+u)*GenDeg1to4 = 6 then
                             Append(RelReduceLett,[p+q+r+s+t+u]);
                             iv := iv+1;
@@ -1775,8 +1792,8 @@ od;
 
 
 
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
         if (p+q)*GenDeg1to4 = 2 then
             for v in CupRel4Lett do
                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -1788,9 +1805,9 @@ for p in Concatenation([Gen0],GensLett) do
         fi;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
             if (p+q+r)*GenDeg1to4 = 3 then
                 for v in CupRel3Lett do
                     RelReduceVec := List([1..RelRedLen],x->0);
@@ -1803,10 +1820,10 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
                 if (p+q+r+s)*GenDeg1to4 = 4 then
                     for v in CupRel2Lett do
                         RelReduceVec := List([1..RelRedLen],x->0);
@@ -1879,7 +1896,7 @@ for u in CupBase5 do
         
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,6)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[6] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1989,7 +2006,7 @@ for u in CupBase4 do
         
             #### Start: determine whether u-cup-v goes to the basis
             ####
-            if cupped = List([1..Cohomology(TR,6)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[6] then         #if u-cup-v is a coboundary
                 solrel := [Lett1];
               
             elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -2127,7 +2144,7 @@ for u in Gen3 do
             ####
             #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 2 ended ####
         
-            if cupped = List([1..Cohomology(TR,6)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[6] then         #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel6Lett,[[Lett1]]);
             elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
@@ -2523,6 +2540,10 @@ od;
 #PrintMonomialString(CupBase6Lett,GenDim1to4,",");
 #Print("\n");
 
+#NOTE: the list below hardcodes dim(H^6) for IT = 221..230 (indexed by IT-220), because the
+#length-6 resolution used on this "raw" path cannot determine the degree-6 coboundaries needed
+#to compute H^6 directly. It is therefore valid ONLY for IT in 221..230; do not reuse this path
+#for other groups.
 if Length(CupBase6Raw) = [62,11,31,26,45,20,19,6,40,7][IT-220] then
     Print("");#Print("dim(H^6)=", [62,11,31,26,45,20,19,6,40,7][IT-220],".\n");
 else
@@ -2568,19 +2589,19 @@ RelReduceMat  := [];
 ####
 iw := 1;
 for ip in [1..(Sum(GenDim1to4)+1)] do
-    p := Concatenation([Gen0],GensLett)[ip];
+    p := allGens[ip];
     for iq in [ip..(Sum(GenDim1to4)+1)] do
-        q := Concatenation([Gen0],GensLett)[iq];
+        q := allGens[iq];
         for ir in [iq..(Sum(GenDim1to4)+1)] do
-            r := Concatenation([Gen0],GensLett)[ir];
+            r := allGens[ir];
             for is in [ir..(Sum(GenDim1to4)+1)] do
-                s := Concatenation([Gen0],GensLett)[is];
+                s := allGens[is];
                 for it in [is..(Sum(GenDim1to4)+1)] do
-                    t := Concatenation([Gen0],GensLett)[it];
+                    t := allGens[it];
                     for iu in [it..(Sum(GenDim1to4)+1)]  do
-                        u := Concatenation([Gen0],GensLett)[iu];
+                        u := allGens[iu];
                         for iv in [iu..(Sum(GenDim1to4)+1)]  do
-                            v := Concatenation([Gen0],GensLett)[iv];
+                            v := allGens[iv];
                             if (p+q+r+s+t+u+v)*GenDeg1to4 = 7 then
                                 Append(RelReduceLett,[p+q+r+s+t+u+v]);
                                 iw := iw+1;
@@ -2610,8 +2631,8 @@ od;
 
 
 
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
         if (p+q)*GenDeg1to4 = 2 then
             for v in CupRel5Lett do
                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -2623,9 +2644,9 @@ for p in Concatenation([Gen0],GensLett) do
         fi;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
             if (p+q+r)*GenDeg1to4 = 3 then
                 for v in CupRel4Lett do
                     RelReduceVec := List([1..RelRedLen],x->0);
@@ -2638,10 +2659,10 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
                 if (p+q+r+s)*GenDeg1to4 = 4 then
                     for v in CupRel3Lett do
                         RelReduceVec := List([1..RelRedLen],x->0);
@@ -2655,11 +2676,11 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
-                for t in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
+                for t in allGens do
                     if (p+q+r+s+t)*GenDeg1to4 = 5 then
                         for v in CupRel2Lett do
                             RelReduceVec := List([1..RelRedLen],x->0);
@@ -2727,7 +2748,7 @@ for u in CupBase6 do
         
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,7)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[7] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         else
@@ -2839,7 +2860,7 @@ for u in CupBase5 do
         
             #### Start: determine whether u-cup-v goes to the basis
             ####
-            if cupped = List([1..Cohomology(TR,7)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[7] then         #if u-cup-v is a coboundary
                 solrel := [Lett1];
               
             else
@@ -2979,7 +3000,7 @@ for u in Gen4 do
             ####
             #### implementing Mod2CupProduct(R,u,v,4,3,CB[4],CB[3],CB[7]) -- part 2 ended ####
         
-            if cupped = List([1..Cohomology(TR,7)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[7] then         #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel7Lett,[[Lett1]]);
             elif CupBase7 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
@@ -3052,21 +3073,21 @@ RelReduceMat  := [];
 ####
 ix := 1;
 for ip in [1..(Sum(GenDim1to4)+1)] do
-    p := Concatenation([Gen0],GensLett)[ip];
+    p := allGens[ip];
     for iq in [ip..(Sum(GenDim1to4)+1)] do
-        q := Concatenation([Gen0],GensLett)[iq];
+        q := allGens[iq];
         for ir in [iq..(Sum(GenDim1to4)+1)] do
-            r := Concatenation([Gen0],GensLett)[ir];
+            r := allGens[ir];
             for is in [ir..(Sum(GenDim1to4)+1)] do
-                s := Concatenation([Gen0],GensLett)[is];
+                s := allGens[is];
                 for it in [is..(Sum(GenDim1to4)+1)] do
-                    t := Concatenation([Gen0],GensLett)[it];
+                    t := allGens[it];
                     for iu in [it..(Sum(GenDim1to4)+1)]  do
-                        u := Concatenation([Gen0],GensLett)[iu];
+                        u := allGens[iu];
                         for iv in [iu..(Sum(GenDim1to4)+1)]  do
-                            v := Concatenation([Gen0],GensLett)[iv];
+                            v := allGens[iv];
                             for iw in [iv..(Sum(GenDim1to4)+1)]  do
-                                w := Concatenation([Gen0],GensLett)[iw];
+                                w := allGens[iw];
                                 if (p+q+r+s+t+u+v+w)*GenDeg1to4 = 8 then
                                     Append(RelReduceLett,[p+q+r+s+t+u+v+w]);
                                     ix := ix+1;
@@ -3097,8 +3118,8 @@ od;
 
 
 
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
         if (p+q)*GenDeg1to4 = 2 then
             for v in CupRel6Lett do
                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -3112,9 +3133,9 @@ for p in Concatenation([Gen0],GensLett) do
 od;
 
 
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
             if (p+q+r)*GenDeg1to4 = 3 then
                 for v in CupRel5Lett do
                     RelReduceVec := List([1..RelRedLen],x->0);
@@ -3127,10 +3148,10 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
                 if (p+q+r+s)*GenDeg1to4 = 4 then
                     for v in CupRel4Lett do
                         RelReduceVec := List([1..RelRedLen],x->0);
@@ -3144,11 +3165,11 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
-                for t in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
+                for t in allGens do
                     if (p+q+r+s+t)*GenDeg1to4 = 5 then
                         for v in CupRel3Lett do
                             RelReduceVec := List([1..RelRedLen],x->0);
@@ -3163,12 +3184,12 @@ for p in Concatenation([Gen0],GensLett) do
         od;
     od;
 od;
-for p in Concatenation([Gen0],GensLett) do
-    for q in Concatenation([Gen0],GensLett) do
-        for r in Concatenation([Gen0],GensLett) do
-            for s in Concatenation([Gen0],GensLett) do
-                for t in Concatenation([Gen0],GensLett) do
-                    for u in Concatenation([Gen0],GensLett) do
+for p in allGens do
+    for q in allGens do
+        for r in allGens do
+            for s in allGens do
+                for t in allGens do
+                    for u in allGens do
                         if (p+q+r+s+t+u)*GenDeg1to4 = 6 then
                             for v in CupRel2Lett do
                                 RelReduceVec := List([1..RelRedLen],x->0);
@@ -3237,7 +3258,7 @@ for u in CupBase7 do
         
         #### Start: determine whether u-cup-v goes to the basis
         ####
-        if cupped = List([1..Cohomology(TR,8)],x->0) then         #if u-cup-v is a coboundary
+        if cupped = zeroH[8] then         #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         else
@@ -3349,7 +3370,7 @@ for u in CupBase6 do
         
             #### Start: determine whether u-cup-v goes to the basis
             ####
-            if cupped = List([1..Cohomology(TR,8)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[8] then         #if u-cup-v is a coboundary
                 solrel := [Lett1];
               
             else
@@ -3489,7 +3510,7 @@ for u in Gen4 do
             ####
             #### implementing Mod2CupProduct(R,u,v,4,4,CB[4],CB[4],CB[8]) -- part 2 ended ####
         
-            if cupped = List([1..Cohomology(TR,8)],x->0) then         #if u-cup-v is a coboundary
+            if cupped = zeroH[8] then         #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel8Lett,[[Lett1]]);
             elif CupBase8 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
@@ -3914,6 +3935,9 @@ local i, mat33, trans;
 mat33:=List([1..3],i->List([1..3],j->mat[i,j]));
 
 i:=Position(PGMat33,mat33);
+if i = fail then
+    Error("MatToPow: the 3x3 rotation part is not among the enumerated point-group matrices.\n");
+fi;
 
 trans:=mat*PGMatinv[i];
 
@@ -3926,23 +3950,32 @@ return MatToPow(TransposedMat(PreImage(Gp,R!.elts[i])));
 end;
 #####################################################################
 Invofg:=function(v)
-local vpg, transmat;
+local vpg, transmat, p;
 
 transmat := [[1,0,0,v[1]],[0,1,0,v[2]],[0,0,1,v[3]],[0,0,0,1]];
 vpg := List([4..(Length(v))],x->v[x]);
+p := Position(PGind,vpg);
+if p = fail then
+    Error("Invofg: point-group part ", vpg, " not found in PGind.\n");
+fi;
 
-return MatToPow((transmat * PGMatinv[Position(PGind,vpg)]^(-1))^(-1));
+return MatToPow((transmat * PGMatinv[p]^(-1))^(-1));
 end;
 #####################################################################
 Prodg1g2Pow:=function(v1,v2)
-local vpg1, vpg2, transmat1, transmat2, prod;
+local vpg1, vpg2, transmat1, transmat2, prod, p1, p2;
 
 transmat1 := [[1,0,0,v1[1]],[0,1,0,v1[2]],[0,0,1,v1[3]],[0,0,0,1]];
 transmat2 := [[1,0,0,v2[1]],[0,1,0,v2[2]],[0,0,1,v2[3]],[0,0,0,1]];
 vpg1 := List([4..(Length(v1))],x->v1[x]);
 vpg2 := List([4..(Length(v2))],x->v2[x]);
+p1 := Position(PGind,vpg1);
+p2 := Position(PGind,vpg2);
+if p1 = fail or p2 = fail then
+    Error("Prodg1g2Pow: point-group part not found in PGind (", vpg1, " or ", vpg2, ").\n");
+fi;
 
-prod := transmat1 * PGMatinv[Position(PGind,vpg1)]^(-1) * transmat2 * PGMatinv[Position(PGind,vpg2)]^(-1);
+prod := transmat1 * PGMatinv[p1]^(-1) * transmat2 * PGMatinv[p2]^(-1);
 
 return MatToPow(prod);
 end;
@@ -4006,10 +4039,11 @@ return val;
 end;
 #####################################################################
 TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters,[matrices giving linear combination of letters])
-local gs,letters,solrels, vallist;
+local gs,letters,solrels,vallist,i;
 
 gs := arg[1];               #List of group elements [g1] or [g1,g2] or [g1,g2,g3] at which the cocycles are evaluated
 letters := arg[2];          #List of letters representing the monomials
+vallist := fail;            #stays fail unless a topological-invariant formula matches below
 
 
 if Length(arg) = 2 then
@@ -4077,6 +4111,9 @@ elif Length(gs) = 4 then
 else
     Print("Wrong in checking topological invariant: Number of group elements is not between 1 and 4!!\n");
 fi;
+if vallist = fail then      #no formula matched (or input flagged "not a topological invariant") -- fail loudly, not with an opaque unbound-variable error
+    Error("TopoInvdeg3: no topological-invariant formula matched the given group element(s): ", gs, "\n");
+fi;
 return GF2ToZ((solrels*vallist)*Z(2));
 end;
 #####################################################################
@@ -4085,6 +4122,12 @@ end;
     ####################BEGIN TO READ THE INPUT##################
 
 IT:=arg[1];
+
+#The data globals below come from the accompanying data file (e.g. Space_Group_Cocycles.gi /
+#SpaceGroupCohomologyData.gi). Fail with a clear message if it was not Read in first.
+if not (IsBound(PGGens230) and IsBound(funcs230) and IsBound(IWP) and IsBound(GENNAMES)) then
+    Error("SpaceGroupCohomologyRingGapInterface: required data not loaded -- Read the data file defining PGGens230, funcs230, IWP and GENNAMES before calling.\n");
+fi;
 
 T1:=[[1,0,0,1],[0,1,0,0],[0,0,1,0],[0,0,0,1]]; #standard translation T1
 T2:=[[1,0,0,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]]; #standard translation T2
@@ -4107,6 +4150,12 @@ else
 fi;
 
 PGGen33 := List([1..Length(PGGen)],k->List([1..3],i->List([1..3],j->PGGen[k][i,j])));
+
+#The element enumeration below hardcodes "o2 in [0..1]", i.e. it assumes the 2nd point-group
+#generator has order 2. Make that assumption explicit instead of silently mis-enumerating.
+if Length(PGGen) >= 2 and Order(PGGen33[2]) <> 2 then
+    Error("SpaceGroupCohomologyRingGapInterface: element enumeration assumes Order(PGGen[2])=2, but it is ", Order(PGGen33[2]), " for IT=", IT, ".\n");
+fi;
 
 if Length(PGGen) = 0 then
     Append(PGind,[[]]);
