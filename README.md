@@ -9,10 +9,37 @@ This repository contains the following three parts
 
 ### GAP codes
 
-Read both SpaceGroupCohomologyData.gi and SpaceGroupCohomologyFunctions.gi
-Main command that outputs the mod-2 cohomology and LSM anomaly classes:
-SpaceGroupCohomologyRingGapInterface(IT);
-where IT is the numbering of the space group (1<=IT<=230).
+The GAP sources are organised as a proper GAP package, living in
+[`gap_codes/SpaceGroupCohomology/`](gap_codes/SpaceGroupCohomology/).  The
+package depends on [HAP](https://gap-packages.github.io/hap/) (≥ 1.30) and
+loads it automatically.
+
+**Install** by symlinking the package directory into GAP's package search
+path (typically `~/.gap/pkg/`):
+
+```bash
+mkdir -p ~/.gap/pkg
+ln -s "$(pwd)/gap_codes/SpaceGroupCohomology" ~/.gap/pkg/SpaceGroupCohomology
+```
+
+**Use** the single command:
+
+```gap
+gap> LoadPackage("SpaceGroupCohomology");
+true
+gap> SpaceGroupCohomologyRingGapInterface(IT);   # 1 <= IT <= 230
+```
+
+`SpaceGroupCohomologyRingGapInterface(IT)` prints the mod-2 cohomology ring
+of space group No. `IT` together with its LSM anomaly classes.
+
+The package layout, dependencies and self-test are documented in
+[`gap_codes/SpaceGroupCohomology/README.md`](gap_codes/SpaceGroupCohomology/README.md).
+
+> **Note:** The older flat files `gap_codes/SpaceGroupCohomologyData.gi` and
+> `gap_codes/SpaceGroupCohomologyFunctions.gi` are now thin deprecation
+> shims that point to the new package.  They will be removed in a future
+> release; please update any scripts that `Read` them directly.
 
 ### Mathematica codes
 
