@@ -40,7 +40,7 @@ SetPackageInfo( rec(
       LastName       := "Ye",
       FirstNames     := "Weicheng",
       IsAuthor       := true,
-      IsMaintainer   := false,
+      IsMaintainer   := true,
       Email          := "",
       WWW            := "",
       PostalAddress  := "",
