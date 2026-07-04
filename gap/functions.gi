@@ -136,8 +136,8 @@ end;
 
 CR_Mod2CocyclesAndCoboundaries:=function(arg)
 local
-	R, n, toggle, Dimension, Boundary, 
-	M1, M2, row, sol,
+	R, n, toggle, Dimension, Boundary,
+	M1Ts, M2Ts, CCsolver,
 	kerdim, imgdim, cohdim, Mod2Cohomologydim,
     BasisKerd1, BasisImaged2, Rels, CobandCoc,
 	#Smith, SmithRecord, TorsionCoefficients,
@@ -163,64 +163,26 @@ if n=0 then return [0]; fi;
 #####################################################################
 
 
-	################CONSTRUCT BOUNDARY MATRICES M1 AND M2########
-M1:=[];
-M2:=[];
+	################SPARSE BOUNDARY MATRICES######################
+#M1 is Dim(n) x Dim(n-1);  M2 is Dim(n+1) x Dim(n).  Both are built directly
+#from the sparse R!.boundary as transposed sparse records (gap/linalg.gi) and
+#never densified when huge; below SGC_LINALG_THRESHOLD the wrappers densify
+#and run the exact routines the old dense code used (BasisNullspaceModN,
+#BaseMat), so small-group output is unchanged.
 
-#M1 is Dim(n) x Dim(n-1);
-#M2 is Dim(n+1) x Dim(n);
-
-for i in [1..Dimension(n)] do
-    row:=List([1..Dimension(n-1)],j->0);
-    for x in Boundary(n,i) do                #scatter the sparse boundary directly into its target column
-        j:=AbsoluteValue(x[1]);
-        row[j]:= row[j] + SignInt(x[1]);
-    od;
-    for j in [1..Dimension(n-1)] do
-        row[j]:= RemInt(row[j],2);
-    od;
-M1[i]:=row;
-od;
-
-if Dimension(n+1)>0 then
-for i in [1..Dimension(n+1)] do
-    row:=List([1..Dimension(n)],j->0);
-    for x in Boundary(n+1,i) do               #scatter the sparse boundary directly into its target column
-        j:=AbsoluteValue(x[1]);
-        row[j]:= row[j] + SignInt(x[1]);
-    od;
-    for j in [1..Dimension(n)] do
-        row[j]:= RemInt(row[j],2);
-    od;
-M2[i]:=row;
-od;
-
+if Dimension(n) = 0 then
+    BasisKerd1:=[];
+    BasisImaged2:=[];
 else
+    if Dimension(n+1)>0 then
+        M2Ts:=SGC_SparseBoundaryMat(R, n+1, true);   #= TransposedMat(M2), Dim(n) x Dim(n+1)
+    else
+        M2Ts:=SGC_SparseMat(Dimension(n), 1);        #transposed zero row, as the old code built
+    fi;
+    BasisKerd1:=SGC_NullspaceMod2(M2Ts);
 
-row:=[];
-for j in [1..Dimension(n)] do
-row[j]:=0;
-od;
-M2[1]:=row;
-fi;
-	################MATRICES M1 AND M2 CONSTRUCTED###############
-
-#M1 is Dim(n) x Dim(n-1);
-#M2 is Dim(n+1) x Dim(n);
-#BasisKerd1:=LLLReducedBasis(TransposedMat(M2),"linearcomb").relations;
-#BasisImaged2:=LLLReducedBasis(TransposedMat(M1)).basis;
-
-
-if M2 = [ [ ] ] then
-BasisKerd1:=[];
-else
-BasisKerd1:=BasisNullspaceModN(TransposedMat(M2),2);
-fi;
-
-if M1 = [ ] then
-BasisImaged2:=[];
-else
-BasisImaged2:=BaseMat(TransposedMat(M1)*Z(2));
+    M1Ts:=SGC_SparseBoundaryMat(R, n, true);         #= TransposedMat(M1), Dim(n-1) x Dim(n)
+    BasisImaged2:=SGC_RowBasisMod2(M1Ts);
 fi;
 
 #Print(BasisKerd1);
@@ -236,7 +198,7 @@ if cohdim > 0 then
     if imgdim = 0 then
         CobandCoc := BasisKerd1 * Z(2);
     else
-        Append(CobandCoc, BaseSteinitzVectors(BasisKerd1 * Z(2), BasisImaged2)!.factorspace);
+        Append(CobandCoc, SGC_SteinitzMod2(BasisKerd1, BasisImaged2));
     fi;
 fi;
 
@@ -262,6 +224,13 @@ if cohdim > 0 then
     CohomologyBasisMatrix := CobandCoc{[kerdim-cohdim+1 .. kerdim]};
 fi;
 
+#Factor CobandCoc once and reuse for every CycleToClass call (the old code
+#re-eliminated the same matrix via SolutionMat on each call). CobandCoc has
+#independent rows, so the solution is unique and identical to SolutionMat's.
+if kerdim > 0 then
+    CCsolver := SGC_SolverMod2(CobandCoc);
+fi;
+
 #####################################################################
 CycleToClass:=function(v)
 local u;
@@ -269,7 +238,7 @@ local u;
 if cohdim = 0 then
 return [];
 fi;
-u:=GF2ToZ(SolutionMat(CobandCoc_GF2,v*Z(2)));
+u:=GF2ToZ(CCsolver(v));
 return u{[kerdim-cohdim+1 .. kerdim]};
 
 end;

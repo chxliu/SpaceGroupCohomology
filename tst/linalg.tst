@@ -85,5 +85,20 @@ gap> SGC_RankMod2(S);
 gap> SGC_LINALG_THRESHOLD := 0;;
 gap> if SGC_LinalgBinary() = fail then Print("2\n"); else Print(SGC_RankMod2(S), "\n"); fi;
 2
+
+# End-to-end forced offload through CR_Mod2CocyclesAndCoboundaries (Task 5):
+# cohomology dims are basis-independent and must equal the native values,
+# and the call counter proves the external binary was actually exercised.
+gap> SGC_LINALG_THRESHOLD := 0;;
+gap> if SGC_LinalgBinary() = fail then
+>     Print("[ 5, 12, 20, 28 ]\ntrue\n");
+> else
+>     SGC_LINALG_CALLS := 0;;
+>     R16 := ResolutionAlmostCrystalGroup(Image(IsomorphismPcpGroup(SpaceGroupBBNWZ(3,16))), 7);;
+>     Print(List([1..4], k -> CR_Mod2CocyclesAndCoboundaries(R16, k, false)!.Mod2Cohomologydim), "\n");
+>     Print(SGC_LINALG_CALLS > 0, "\n");
+> fi;
+[ 5, 12, 20, 28 ]
+true
 gap> SGC_LINALG_THRESHOLD := saved_threshold;;
 gap> STOP_TEST("linalg.tst", 0);

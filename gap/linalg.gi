@@ -183,12 +183,14 @@ end;
 
 #####################################################################
 SGC_NullspaceMod2:=function(M)
-# Basis of {x : x.M = 0 mod 2} as 0/1 integer vectors
-# (same output convention as BasisNullspaceModN(M, 2)).
+# Basis of {x : x.M = 0 mod 2} as 0/1 integer vectors. The native branch
+# calls BasisNullspaceModN — the same routine the pre-offload code used —
+# so default-threshold results stay byte-identical to the old pipeline.
 local fin, fout;
 if not SGC_ShouldOffload(M) then
     M := SGC_ToNative(M);
-    return List(NullspaceMat(M*Z(2)), SGC_GF2ToZ);
+    if Length(M) = 0 then return []; fi;
+    return BasisNullspaceModN(M, 2);
 fi;
 fin := SGC_TmpFile("A.sms"); fout := SGC_TmpFile("out.sms");
 SGC_WriteSMS(M, fin);
