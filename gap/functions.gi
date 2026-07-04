@@ -356,7 +356,7 @@ for iu in [(offset+1)..(offset+Length(GenK))] do
         Append(CupBaseK,[GenK[iu-offset]]);
         Append(CupBaseKLett,[GensLett[iu]]);
     else
-        sol :=SolutionMat(CupBaseK*Z(2),GenK[iu-offset]*Z(2));
+        sol :=SGC_CachedSolve(CupBaseK,GenK[iu-offset]);
         if sol = fail then
             Append(CupBaseK,[GenK[iu-offset]]);
             Append(CupBaseKLett,[GensLett[iu]]);
@@ -481,8 +481,8 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
         if Cupped = [] then
             Gens := Cups*Z(2);
         else
-            CuppedBasis := List(BaseMat(Cupped),ShallowCopy);
-            Gens := BaseSteinitzVectors(Cups*Z(2),CuppedBasis)!.factorspace;
+            CuppedBasis := List(SGC_RowBasisMod2(Cupped),ShallowCopy);
+            Gens := SGC_SteinitzMod2(Cups,CuppedBasis);
         fi;
 
         GensBasis :=[];
@@ -691,7 +691,7 @@ for u in Gen1 do
                     Append(CupBase2,[cupped]);
                     Append(CupBase2Lett,[Lett1]);
                 else
-                    sol :=SolutionMat(CupBase2*Z(2),cupped*Z(2));
+                    sol :=SGC_CachedSolve(CupBase2,cupped);
                     if sol = fail then                        #if u-cup-v is a genuine new cocycle
                         Append(CupBase2,[cupped]);
                         Append(CupBase2Lett,[Lett1]);
@@ -724,7 +724,7 @@ for u in Gen1 do
                 Append(CupBase2,[cupped]);
                 Append(CupBase2Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase2*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase2,cupped);
                 if sol = fail then                                  #if u-cup-u is a genuine new cocycle
                     Append(CupBase2,[cupped]);
                     Append(CupBase2Lett,[Lett1]);
@@ -823,7 +823,7 @@ for u in CupBase2 do
                 Append(CupBase3,[cupped]);
                 Append(CupBase3Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase3*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase3,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase3,[cupped]);
                     Append(CupBase3Lett,[Lett1]);
@@ -854,7 +854,7 @@ for u in CupBase2 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                solrelred := SolutionMat(RelReduceMat*Z(2),RelReduceVec*Z(2));
+                solrelred := SGC_CachedSolve(RelReduceMat,RelReduceVec);
             fi;
             ####
             #### end checking whether the relation is reducible from lower degree ones
@@ -978,7 +978,7 @@ for u in CupBase3 do
             Append(CupBase4,[cupped]);
             Append(CupBase4Lett,[Lett1]);
         else
-            sol :=SolutionMat(CupBase4*Z(2),cupped*Z(2));
+            sol :=SGC_CachedSolve(CupBase4,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase4,[cupped]);
                 Append(CupBase4Lett,[Lett1]);
@@ -1007,7 +1007,7 @@ for u in CupBase3 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                solrelred := SolutionMat(RelReduceMat*Z(2),RelReduceVec*Z(2));
+                solrelred := SGC_CachedSolve(RelReduceMat,RelReduceVec);
             fi;
             ####
             #### end checking whether the relation is reducible from lower degree ones
@@ -1053,7 +1053,7 @@ for u in Gen2 do
                 Append(CupBase4,[cupped]);
                 Append(CupBase4Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase4*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase4,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase4,[cupped]);
                     Append(CupBase4Lett,[Lett1]);
@@ -1168,7 +1168,7 @@ od;
 ####
 #### End preparation for relation reduction
 
-rk:=RankMatrix(RelReduceMat*Z(2));
+rk:=SGC_RankMod2(RelReduceMat);
 
 
 #Step-1 begins here: degree-4 cup with degree-1-gen
@@ -1226,7 +1226,7 @@ for u in CupBase4 do
             Append(CupBase5,[cupped]);
             Append(CupBase5Lett,[Lett1]);
         else
-            sol :=SolutionMat(CupBase5*Z(2),cupped*Z(2));
+            sol :=SGC_CachedSolve(CupBase5,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase5,[cupped]);
                 Append(CupBase5Lett,[Lett1]);
@@ -1255,7 +1255,7 @@ for u in CupBase4 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -1332,7 +1332,7 @@ for u in Gen3 do
             Append(CupBase5,[cupped]);
             Append(CupBase5Lett,[Lett1]);
         else
-            sol :=SolutionMat(CupBase5*Z(2),cupped*Z(2));
+            sol :=SGC_CachedSolve(CupBase5,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase5,[cupped]);
                 Append(CupBase5Lett,[Lett1]);
@@ -1361,7 +1361,7 @@ for u in Gen3 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -1547,7 +1547,7 @@ od;
 #### End preparation for relation reduction
 
 
-rk:=RankMatrix(RelReduceMat*Z(2));
+rk:=SGC_RankMod2(RelReduceMat);
 
 
 # Below is the good method when resolution at degree 7 has been constructed:
@@ -1606,7 +1606,7 @@ for u in CupBase5 do
             Append(CupBase6,[cupped]);
             Append(CupBase6Lett,[Lett1]);
         else
-            sol :=SolutionMat(CupBase6*Z(2),cupped*Z(2));
+            sol :=SGC_CachedSolve(CupBase6,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
@@ -1635,7 +1635,7 @@ for u in CupBase5 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -1714,7 +1714,7 @@ for u in CupBase4 do
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase6*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase6,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6,[cupped]);
                     Append(CupBase6Lett,[Lett1]);
@@ -1743,7 +1743,7 @@ for u in CupBase4 do
                     fi;
                 od;
                 if (solrelred = fail) = false then
-                    rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                     if (rk = rk1) = false then
                         solrelred :=fail;
                     fi;
@@ -1818,7 +1818,7 @@ for u in Gen3 do
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase6*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase6,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6,[cupped]);
                     Append(CupBase6Lett,[Lett1]);
@@ -1900,7 +1900,7 @@ for u in CupBase5 do
         #### Start: determine whether u-cup-v goes to the basis
         ####
         solrel := [];
-        if (SolutionMat(BasisImaged2*Z(2),cuppedRaw*Z(2)) = fail) = false then        #if u-cup-v is a coboundary
+        if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1908,7 +1908,7 @@ for u in CupBase5 do
             Append(CupBase6Lett,[Lett1]);
             Append(CupBase6RawCobandCoc,[cuppedRaw]);
         else
-            sol :=SolutionMat(CupBase6RawCobandCoc*Z(2),cuppedRaw*Z(2));
+            sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase6Raw,[cuppedRaw]);
                 Append(CupBase6Lett,[Lett1]);
@@ -1939,7 +1939,7 @@ for u in CupBase5 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -2011,7 +2011,7 @@ for u in CupBase4 do
             #### Start: determine whether u-cup-v goes to the basis
             ####
             solrel := [];
-            if (SolutionMat(BasisImaged2*Z(2),cuppedRaw*Z(2)) = fail) = false then        #if u-cup-v is a coboundary
+            if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
                 solrel := [Lett1];
             
             elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -2019,7 +2019,7 @@ for u in CupBase4 do
                 Append(CupBase6Lett,[Lett1]);
                 Append(CupBase6RawCobandCoc,[cuppedRaw]);
             else
-                sol :=SolutionMat(CupBase6RawCobandCoc*Z(2),cuppedRaw*Z(2));
+                sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6Raw,[cuppedRaw]);
                     Append(CupBase6Lett,[Lett1]);
@@ -2050,7 +2050,7 @@ for u in CupBase4 do
                     fi;
                 od;
                 if (solrelred = fail) = false then
-                    rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                     if (rk = rk1) = false then
                         solrelred :=fail;
                     fi;
@@ -2120,7 +2120,7 @@ for u in Gen3 do
             
             #### Start:  determine whether u-cup-v goes to the basis
             ####
-            if (SolutionMat(BasisImaged2*Z(2),cuppedRaw*Z(2)) = fail) = false then        #if u-cup-v is a coboundary
+            if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel6Lett,[[Lett1]]);
             
@@ -2129,7 +2129,7 @@ for u in Gen3 do
                 Append(CupBase6Lett,[Lett1]);
                 Append(CupBase6RawCobandCoc,[cuppedRaw]);
             else
-                sol :=SolutionMat(CupBase6RawCobandCoc*Z(2),cuppedRaw*Z(2));
+                sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6Raw,[cuppedRaw]);
                     Append(CupBase6Lett,[Lett1]);
@@ -2312,7 +2312,7 @@ od;
 #### End preparation for relation reduction
 
 
-rk:=RankMatrix(RelReduceMat*Z(2));
+rk:=SGC_RankMod2(RelReduceMat);
 
 
 #Step-1 begins here: degree-6 cup with degree-1-gen
@@ -2366,7 +2366,7 @@ for u in CupBase6 do
                 Append(CupBase7,[cupped]);
                 Append(CupBase7Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase7*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase7,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
@@ -2396,7 +2396,7 @@ for u in CupBase6 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -2476,7 +2476,7 @@ for u in CupBase5 do
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
                 else
-                    sol :=SolutionMat(CupBase7*Z(2),cupped*Z(2));
+                    sol :=SGC_CachedSolve(CupBase7,cupped);
                     if sol = fail then                  #if u-cup-v is a genuine new cocycle
                         Append(CupBase7,[cupped]);
                         Append(CupBase7Lett,[Lett1]);
@@ -2506,7 +2506,7 @@ for u in CupBase5 do
                     fi;
                 od;
                 if (solrelred = fail) = false then
-                    rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                     if (rk = rk1) = false then
                         solrelred :=fail;
                     fi;
@@ -2581,7 +2581,7 @@ for u in Gen4 do
                 Append(CupBase7,[cupped]);
                 Append(CupBase7Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase7*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase7,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
@@ -2763,7 +2763,7 @@ od;
 #### End preparation for relation reduction
 
 
-rk:=RankMatrix(RelReduceMat*Z(2));
+rk:=SGC_RankMod2(RelReduceMat);
 
 
 #Step-1 begins here: degree-7 cup with degree-1-gen
@@ -2817,7 +2817,7 @@ for u in CupBase7 do
                 Append(CupBase8,[cupped]);
                 Append(CupBase8Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase8*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase8,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);
@@ -2847,7 +2847,7 @@ for u in CupBase7 do
                 fi;
             od;
             if (solrelred = fail) = false then
-                rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                 if (rk = rk1) = false then
                     solrelred :=fail;
                 fi;
@@ -2927,7 +2927,7 @@ for u in CupBase6 do
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);
                 else
-                    sol :=SolutionMat(CupBase8*Z(2),cupped*Z(2));
+                    sol :=SGC_CachedSolve(CupBase8,cupped);
                     if sol = fail then                  #if u-cup-v is a genuine new cocycle
                         Append(CupBase8,[cupped]);
                         Append(CupBase8Lett,[Lett1]);
@@ -2957,7 +2957,7 @@ for u in CupBase6 do
                     fi;
                 od;
                 if (solrelred = fail) = false then
-                    rk1:=RankMatrix(Concatenation(RelReduceMat*Z(2),[RelReduceVec]*Z(2)));
+                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
                     if (rk = rk1) = false then
                         solrelred :=fail;
                     fi;
@@ -3032,7 +3032,7 @@ for u in Gen4 do
                 Append(CupBase8,[cupped]);
                 Append(CupBase8Lett,[Lett1]);
             else
-                sol :=SolutionMat(CupBase8*Z(2),cupped*Z(2));
+                sol :=SGC_CachedSolve(CupBase8,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);

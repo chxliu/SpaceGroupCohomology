@@ -288,6 +288,36 @@ end;
 #####################################################################
 
 #####################################################################
+# Solver cache for the relation loops in functions.gi: those loops solve
+# hundreds of times against matrices (CupBaseK, RelReduceMat) that only ever
+# GROW by Append — so a factored solver is valid until Length changes, and a
+# rebuild-on-growth cache turns per-call eliminations into cheap reductions.
+# Rows are never modified in place by those loops (only appended), which is
+# what makes (identity, Length) a sound validity key.
+SGC_SolverCacheList := [];
+
+SGC_CachedSolve:=function(M, b)
+local k, ent;
+for k in [1..Length(SGC_SolverCacheList)] do
+    ent := SGC_SolverCacheList[k];
+    if IsIdenticalObj(ent.mat, M) then
+        if ent.len <> Length(M) then
+            ent.len := Length(M);
+            ent.solver := SGC_SolverMod2(M);
+        fi;
+        return ent.solver(b);
+    fi;
+od;
+ent := rec(mat := M, len := Length(M), solver := SGC_SolverMod2(M));
+Add(SGC_SolverCacheList, ent);
+if Length(SGC_SolverCacheList) > 16 then
+    Remove(SGC_SolverCacheList, 1);
+fi;
+return ent.solver(b);
+end;
+#####################################################################
+
+#####################################################################
 SGC_SparseBoundaryMat:=function(R, n, transposed)
 # Mod-2 boundary matrix of the degree-n resolution module as a sparse rec,
 # built directly from R!.boundary (already sparse) — never densified.
