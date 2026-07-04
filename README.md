@@ -20,6 +20,25 @@ ln -s "$(pwd)/SpaceGroupCohomology" ~/.gap/pkg/SpaceGroupCohomology
 The package depends on [HAP](https://gap-packages.github.io/hap/) (≥ 1.30),
 which is loaded automatically.
 
+### Optional: external linear-algebra accelerator
+
+Large computations can offload mod-2 linear algebra to a small bundled C++
+tool. Building it is optional — without it the package behaves exactly as
+before:
+
+```bash
+make -C cpp        # builds bin/sgclinalg (no external dependencies)
+make -C cpp test   # self-tests
+```
+
+Matrices whose size (rows × columns) exceeds `SGC_LINALG_THRESHOLD`
+(default `10^6`) are then handled by `bin/sgclinalg` via a sparse-matrix
+file interface; everything smaller stays on GAP's native routines, so
+published outputs are unchanged. Set the GAP global
+`SGC_LINALG_THRESHOLD := 0;` to force everything through the external tool,
+or point the environment variable `SGC_LINALG_PATH` at a binary outside the
+package directory.
+
 ## Usage
 
 ```gap
