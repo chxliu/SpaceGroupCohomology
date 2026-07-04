@@ -10,8 +10,8 @@ SetPackageInfo( rec(
 
   PackageName    := "SpaceGroupCohomology",
   Subtitle       := "Mod-2 cohomology rings and LSM anomaly classes for the 230 space groups",
-  Version        := "1.0.0",
-  Date           := "2026-05-21",
+  Version        := "1.1.0",
+  Date           := "2026-07-04",
   License        := "GPL-2.0-or-later",
 
   ##  The four URL fields below are required by GAP's package validator and
