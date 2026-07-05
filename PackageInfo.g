@@ -10,8 +10,8 @@ SetPackageInfo( rec(
 
   PackageName    := "SpaceGroupCohomology",
   Subtitle       := "Mod-2 cohomology rings and LSM anomaly classes for the 230 space groups",
-  Version        := "1.1.0",
-  Date           := "2026-07-04",
+  Version        := "1.2.0",
+  Date           := "2026-07-05",
   License        := "GPL-2.0-or-later",
 
   ##  The four URL fields below are required by GAP's package validator and
@@ -72,7 +72,7 @@ SetPackageInfo( rec(
     GAP                    := ">= 4.11",
     NeededOtherPackages    := [ [ "HAP", ">= 1.30" ] ],
     SuggestedOtherPackages := [ ],
-    ExternalConditions     := [ ],
+    ExternalConditions     := [ "polymake (https://polymake.org) must be on the PATH: HAP's CrystallographicComplex shells out to it to compute fundamental-domain vertices and face lattices" ],
   ),
 
   AvailabilityTest := ReturnTrue,

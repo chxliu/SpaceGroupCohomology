@@ -18,7 +18,11 @@ ln -s "$(pwd)/SpaceGroupCohomology" ~/.gap/pkg/SpaceGroupCohomology
 ```
 
 The package depends on [HAP](https://gap-packages.github.io/hap/) (≥ 1.30),
-which is loaded automatically.
+which is loaded automatically, and on [polymake](https://polymake.org)
+being installed and on the `PATH` (e.g. `brew install polymake`): the
+space-group resolutions are built from HAP's `CrystallographicComplex`,
+which shells out to polymake to compute the fundamental-domain vertices
+and face lattices.
 
 ### Optional: external linear-algebra accelerator
 
@@ -54,7 +58,7 @@ LSM anomaly classes for the given space group.
 
 ```
 SpaceGroupCohomology/
-├── PackageInfo.g       package metadata + HAP dependency
+├── PackageInfo.g       package metadata + HAP/polymake dependencies
 ├── init.g              forward declarations of data globals
 ├── read.g              reads gap/data.gi then gap/functions.gi
 ├── gap/
