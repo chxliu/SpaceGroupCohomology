@@ -3171,12 +3171,13 @@ if Length(CupRel5Lett) >0 then
     Print("R5:  ");List(CupRel5Lett,x->PrintMonomialString(x,GenDim1to4,"+",GENNAMES[IT]));Print("\n");
 fi;
 if Length(CupRel6Lett) >0 then
+    Print("R6:  ");List(CupRel6Lett,x->PrintMonomialString(x,GenDim1to4,"+",GENNAMES[IT]));Print("\n");
 fi;
 
 #Begin printing Degree 7 and 8 relations:
 #
 #
-if Length(Gen4) >0 and Length(Size(R)) >= 9 then
+if Length(Gen4) >0 and Length(Size(R)) >= 8 then
     if Length(CupRel7Lett) >0 then
         Print("R7:  ");List(CupRel7Lett,x->PrintMonomialString(x,GenDim1to4,"+",GENNAMES[IT]));Print("\n");
     fi;
