@@ -94,7 +94,7 @@ gap> if SGC_LinalgBinary() = fail then
 >     Print("[ 5, 12, 20, 28 ]\ntrue\n");
 > else
 >     SGC_LINALG_CALLS := 0;;
->     R16 := ResolutionAlmostCrystalGroup(Image(IsomorphismPcpGroup(SpaceGroupBBNWZ(3,16))), 7);;
+>     R16 := SGC_ResolutionSpaceGroup(SpaceGroupBBNWZ(3,16), 7);;
 >     Print(List([1..4], k -> CR_Mod2CocyclesAndCoboundaries(R16, k, false)!.Mod2Cohomologydim), "\n");
 >     Print(SGC_LINALG_CALLS > 0, "\n");
 > fi;

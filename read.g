@@ -5,4 +5,5 @@
 
 ReadPackage( "SpaceGroupCohomology", "gap/data.gi" );
 ReadPackage( "SpaceGroupCohomology", "gap/linalg.gi" );
+ReadPackage( "SpaceGroupCohomology", "gap/homotopy.gi" );
 ReadPackage( "SpaceGroupCohomology", "gap/functions.gi" );
