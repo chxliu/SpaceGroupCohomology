@@ -404,7 +404,7 @@ n,Y,k,x,y,i;
 G:=arg[1];
 G:=StandardAffineCrystGroup(G);
 if Length(arg)>1 then pt:=arg[2]; else
-pt:=List([1..Length(One(G))-1], i->1/Primes[10+i]);
+pt:=List([1..Length(One(G))-1], i->Primes[i+3]/Primes[25+i]);
 fi;
 
 AG:=AffineCrystGroupOnRight(GeneratorsOfGroup(G));;
@@ -846,24 +846,144 @@ od;
 return out;
 end;
 #####################################################################
-# Greedy free-face collapse of Y onto the subcomplex of old cells.
+# Free-face collapse of Y onto the subcomplex of old cells.
 # mask[n+1][k] = true iff the Y-cell k of dimension n is old.  Returns
 # match[n+1][k] for new cells: a positive integer k' (paired coface, source),
 # or 0 (paired face or critical, h = 0 there).
 CollapseMatching:=function(mask)
-local match, alive, isbase, protected, changed, freecf, nn, kk;
+local isbase, protected, Collapse3D, Greedy, res, nn, kk;
 isbase := ForAll(mask, layer->ForAll(layer, x->not x));
 if isbase then
     protected := baseVertexY;
 else
     protected := 0;
 fi;
+
+Collapse3D:=function()
+local rootVertices, verticesToPair, newEdges, newFaces, rootFace, match,
+      visitedFaces, parentEdgeOfFace, faceQueue, head, faceUsed,
+      remainingEdges, visitedVertices, parentEdgeOfVertex, vertexEdgesUsed,
+      changed, ok, f, e, adj, verts, v1, v2, v;
+
+if dimY <> 3 or mask[4][1] then return fail; fi;
+
+rootVertices := Filtered([1..Y!.nrCells(0)], v->mask[1][v]);
+if isbase then rootVertices := [protected]; fi;
+if rootVertices = [] then return fail; fi;
+
+verticesToPair := Filtered([1..Y!.nrCells(0)],
+    v->not mask[1][v] and not (isbase and v = protected));
+newEdges := Filtered([1..Y!.nrCells(1)], e->not mask[2][e]);
+newFaces := Filtered([1..Y!.nrCells(2)], f->not mask[3][f]);
+if newFaces = [] then return fail; fi;
+
+for rootFace in newFaces do
+    match := List([0..dimY], n->[]);
+    match[3][rootFace] := 1;
+    match[4][1] := 0;
+
+    # Collapse boundary faces away from rootFace along a dual spanning tree.
+    visitedFaces := [rootFace];
+    parentEdgeOfFace := [];
+    faceQueue := [rootFace];
+    head := 1;
+    while head <= Length(faceQueue) do
+        f := faceQueue[head];
+        head := head + 1;
+        for e in Y!.boundaries[3][f]{[2..Y!.boundaries[3][f][1]+1]} do
+            if not mask[2][e] then
+                for adj in Cofaces[2][e] do
+                    if not mask[3][adj] and not adj in visitedFaces then
+                        AddSet(visitedFaces, adj);
+                        Add(faceQueue, adj);
+                        parentEdgeOfFace[adj] := e;
+                    fi;
+                od;
+            fi;
+        od;
+    od;
+
+    ok := Length(visitedFaces) = Length(newFaces);
+    faceUsed := [];
+    if ok then
+        for f in newFaces do
+            if f <> rootFace then
+                if not IsBound(parentEdgeOfFace[f]) or
+                   parentEdgeOfFace[f] in faceUsed then
+                    ok := false;
+                    break;
+                fi;
+                e := parentEdgeOfFace[f];
+                AddSet(faceUsed, e);
+                match[2][e] := f;
+                match[3][f] := 0;
+            fi;
+        od;
+    fi;
+
+    if ok then
+        remainingEdges := Filtered(newEdges, e->not e in faceUsed);
+        visitedVertices := ShallowCopy(rootVertices);
+        parentEdgeOfVertex := [];
+        vertexEdgesUsed := [];
+
+        changed := true;
+        while changed do
+            changed := false;
+            for e in remainingEdges do
+                if not e in vertexEdgesUsed then
+                    verts := Y!.boundaries[2][e];
+                    v1 := verts[2];
+                    v2 := verts[3];
+                    if v1 in visitedVertices and not v2 in visitedVertices
+                       and v2 in verticesToPair then
+                        AddSet(visitedVertices, v2);
+                        AddSet(vertexEdgesUsed, e);
+                        parentEdgeOfVertex[v2] := e;
+                        changed := true;
+                    elif v2 in visitedVertices and not v1 in visitedVertices
+                         and v1 in verticesToPair then
+                        AddSet(visitedVertices, v1);
+                        AddSet(vertexEdgesUsed, e);
+                        parentEdgeOfVertex[v1] := e;
+                        changed := true;
+                    fi;
+                fi;
+            od;
+        od;
+
+        ok := ForAll(verticesToPair, v->v in visitedVertices) and
+              Length(vertexEdgesUsed) = Length(remainingEdges);
+    fi;
+
+    if ok then
+        for v in verticesToPair do
+            if not IsBound(parentEdgeOfVertex[v]) then
+                ok := false;
+                break;
+            fi;
+            match[1][v] := parentEdgeOfVertex[v];
+        od;
+        for e in vertexEdgesUsed do
+            match[2][e] := 0;
+        od;
+        if isbase then match[1][protected] := 0; fi;
+    fi;
+
+    if ok then return match; fi;
+od;
+
+return fail;
+end;
+
+Greedy:=function()
+local match, alive, changed, freecf, nn, kk;
 match := List([0..dimY], n->[]);
 alive := List([0..dimY], n->List([1..Y!.nrCells(n)], k->not mask[n+1][k]));
 changed := true;
 while changed do
     changed := false;
-    for nn in [0..dimY-1] do
+    for nn in Reversed([0..dimY-1]) do
         for kk in [1..Y!.nrCells(nn)] do
             if alive[nn+1][kk] and not (nn = 0 and kk = protected) then
                 freecf := Filtered(Cofaces[nn+1][kk], j->alive[nn+2][j]);
@@ -884,18 +1004,31 @@ if isbase then
 fi;
 for nn in [0..dimY] do
     for kk in [1..Y!.nrCells(nn)] do
-        if alive[nn+1][kk] then
-            Error("SGC_AttachCellularContraction: tile collapse jammed at ",
-                  "dimension ", nn, ", cell ", kk);
-        fi;
+        if alive[nn+1][kk] then return fail; fi;
     od;
 od;
 return match;
 end;
+
+res := Collapse3D();
+if res = fail then res := Greedy(); fi;
+if res = fail then
+    for nn in [0..dimY] do
+        for kk in [1..Y!.nrCells(nn)] do
+            if not mask[nn+1][kk] then
+                Error("SGC_AttachCellularContraction: tile collapse jammed at ",
+                      "dimension ", nn, ", cell ", kk);
+            fi;
+        od;
+    od;
+fi;
+return res;
+end;
 #####################################################################
 # Old/new pattern and collapse matching of one tile, cached by its site.
 TileData:=function(m)
-local site, pos, key, mask, nn, kk, b, tiles, t, isold, data, mpos, matching;
+local site, pos, key, mask, nn, kk, k, b, tiles, t, isold, data, mpos,
+      matching, verts, lverts;
 site := AffineAction(m, pt);
 pos := Position(tileSiteList, site);
 if pos <> fail then return tileDataList[pos]; fi;
@@ -904,12 +1037,29 @@ mask := [];
 for nn in [0..dimY] do
     mask[nn+1] := [];
     for kk in [1..Y!.nrCells(nn)] do
-        b := AffineAction(m, baryY[nn+1][kk]);
+        verts := List(geom.vertexCells[nn+1][kk], v->AffineAction(m, v));
+        b := Sum(verts)/Length(verts);
         isold := false;
         for t in TilesOfPoint(b) do
-            if KeyLess(KeyOfMat(t), key) then isold := true; break; fi;
+            if KeyLess(KeyOfMat(t), key) then
+                lverts := SortedList(List(verts,
+                    v->AffineAction(Inverse(t), v)));
+                if LookupDictionary(vertDicts[nn+1], lverts) <> fail then
+                    isold := true;
+                    break;
+                fi;
+            fi;
         od;
         mask[nn+1][kk] := isold;
+    od;
+od;
+for nn in Reversed([1..dimY]) do
+    for kk in [1..Y!.nrCells(nn)] do
+        if mask[nn+1][kk] then
+            for k in Y!.boundaries[nn+1][kk]{[2..Y!.boundaries[nn+1][kk][1]+1]} do
+                mask[nn][k] := true;
+            od;
+        fi;
     od;
 od;
 if key[1] > 0 and ForAll(mask, layer->ForAll(layer, x->not x)) then
@@ -959,24 +1109,34 @@ end;
 # degree q return fail (target or critical cell, h = 0) or the matched
 # coface as a canonicalizable letter [ll, epos] in degree q+1.
 DVF:=function(q, r, e)
-local rep, verts, b, tiles, m, mk, t, tk, td, minv, lverts, kkY, pairk, can, v;
+local rep, verts, b, tiles, m, mk, t, tk, td, minv, lverts, kkY, pairk,
+      can, v, candVerts, candK;
 if q >= dimY then return fail; fi;
 rep := geom.orbitReps[q+1][r];
 verts := List(geom.vertexCells[q+1][rep], v->AffineAction(Elts[e], v));
 b := Sum(verts)/Length(verts);
 tiles := TilesOfPoint(b);
-m := tiles[1]; mk := KeyOfMat(m);
-for t in tiles{[2..Length(tiles)]} do
-    tk := KeyOfMat(t);
-    if KeyLess(tk, mk) then m := t; mk := tk; fi;
+m := fail; mk := fail; lverts := fail; kkY := fail;
+for t in tiles do
+    minv := Inverse(t);
+    candVerts := SortedList(List(verts, v->AffineAction(minv, v)));
+    candK := LookupDictionary(vertDicts[q+1], candVerts);
+    if candK <> fail then
+        tk := KeyOfMat(t);
+        if m = fail or KeyLess(tk, mk) then
+            m := t;
+            mk := tk;
+            lverts := candVerts;
+            kkY := candK;
+        fi;
+    fi;
 od;
-td := TileData(m);
-minv := Inverse(m);
-lverts := SortedList(List(verts, v->AffineAction(minv, v)));
-kkY := LookupDictionary(vertDicts[q+1], lverts);
-if kkY = fail then
-    Error("SGC_AttachCellularContraction: cell not found in its owner tile");
+if m = fail then
+    Error("SGC_AttachCellularContraction: no active tile contains cell ",
+          "as a face; q=", q, " r=", r, " e=", e, " rep=", rep,
+          " barycenter=", b, " verts=", verts);
 fi;
+td := TileData(m);
 if td.mask[q+1][kkY] then
     Error("SGC_AttachCellularContraction: owner tile marks the cell old");
 fi;
@@ -1143,7 +1303,7 @@ bool:=IsHapSL2Subgroup(G) or IsHapSL2OSubgroup(G) or IsBound(G!.bianchiInteger);
 EltsG:=P!.elts;
 BoundaryP:=P!.boundary;
 
-BinGp:=ContractibleGcomplex("SL(2,O-2)");
+BinGp:=ContractibleGcomplex("SL(2,O-2)_a");
 BinGp:=BinGp!.stabilizer(0,4);;
 BinGp:=Image(RegularActionHomomorphism(BinGp));
 
