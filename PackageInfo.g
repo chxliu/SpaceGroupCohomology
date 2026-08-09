@@ -60,16 +60,7 @@ SetPackageInfo( rec(
     "some GF(2) linear algebra, but it is not required; without it the ",
     "package uses GAP-native routines." ),
 
-  PackageDoc := [
-    rec(
-      BookName  := "SpaceGroupCohomology",
-      ArchiveURLSubset := [ "doc" ],
-      HTMLStart := "doc/chap0.html",
-      PDFFile   := "doc/manual.pdf",
-      SixFile   := "doc/manual.six",
-      LongTitle := "Mod-2 cohomology and LSM constraints for space groups",
-    ),
-  ],
+  PackageDoc := [ ],
 
   Dependencies := rec(
     GAP                    := ">= 4.15.0",

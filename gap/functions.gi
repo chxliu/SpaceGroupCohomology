@@ -4,20 +4,10 @@
 #
 # In this file (gap/functions.gi) you will find:
 #
-# GF2ToZ(vec);
-# Letter2Monomial(powvec,gensdim,gensnames);
-# PrintMonomialString(powvecs,gensdim,sep [,gensnames,space]);
-# CR_Mod2CocyclesAndCoboundaries(R,deg);
-# Mod2CupProduct(R,u,v,p,q);
-# Mod2RingGenerators(R,deg);
-# Mod2RingGensAndRels(IT [,3,R,gens]);
-# PointGroupTranslationExtension();
-# IrreducibleWyckoffPoints();
-# SGC_ResolutionForIT(IT);
-# GroupCohomologyMod2(IT) or GroupCohomologyMod2(IT,R);
-# WPCohomologyTable(IT) or WPCohomologyTable(IT,R);
-# WPCohomologyClass(IT,WPs) or WPCohomologyClass(IT,R,WPs);
-# SpaceGroupCohomologyRingGapInterface(IT);
+# GroupCohomologyMod2(IT) or GroupCohomologyMod2(IT,R) prints the mod-2 cohomology ring presentation.
+# WPCohomologyTable(IT) or WPCohomologyTable(IT,R) prints the IWP-to-degree-3-cohomology-class table.
+# WPCohomologyClass(IT,WPs) or WPCohomologyClass(IT,R,WPs) prints the degree-3 class for the selected WPs.
+# SpaceGroupCohomologyRingGapInterface(IT) prints the ring presentation and the full IWP cohomology table.
 #
 #
 # Arguments of the functions:
@@ -37,8 +27,17 @@
 # gens: a list of cohomology ring generators (as class vectors);
 #
 #
-#
-#
+# Other support functions
+# GF2ToZ(vec);
+# Letter2Monomial(powvec,gensdim,gensnames);
+# PrintMonomialString(powvecs,gensdim,sep [,gensnames,space]);
+# CR_Mod2CocyclesAndCoboundaries(R,deg);
+# Mod2CupProduct(R,u,v,p,q);
+# Mod2RingGenerators(R,deg);
+# Mod2RingGensAndRels(IT [,3,R,gens]);
+# PointGroupTranslationExtension();
+# IrreducibleWyckoffPoints();
+# SGC_ResolutionForIT(IT);
 
 
 # NOTE: This file is part of the SpaceGroupCohomology GAP package.
@@ -393,11 +392,7 @@ fi;
 
 if IsInt(arg[1]) then
     IT := arg[1];
-    if IT = 133 or IT = 138 or IT = 210 or IT = 222 or IT = 224 then
-        GG := SpaceGroupIT(spacedim,IT);
-    else
-        GG := SpaceGroupBBNWZ(spacedim,IT);
-    fi;
+    GG := SpaceGroupIT(spacedim,IT);
     R := SGC_ResolutionSpaceGroup(GG,n+1);
 
 else
@@ -607,38 +602,23 @@ if Length(arg)>=2 then
     spacedim:=arg[2];
 fi;
 
-
 IT := arg[1];  #Group number in International Table for Crystallography (ITC)
 #Print("Begin Group No. ", IT, ":\n");
 
-
 if Length(arg)<=2 then
-
-    if IT = 133 or IT = 138 or IT = 210 or IT = 222 or IT = 224 then
-        GG := SpaceGroupIT(spacedim,IT);
-    else
-        GG := SpaceGroupBBNWZ(spacedim,IT);
-    fi;
-
+    GG := SpaceGroupIT(spacedim,IT);
     #Choose the resolution length (n is re-derived from the resolution below at "n:=Length(Size(R))-1").
     #This mirrors the policy in SpaceGroupCohomologyRingGapInterface via SGC_MaxRelationDegreeForIT.
     n := SGC_MaxRelationDegreeForIT(IT);
     R := SGC_ResolutionSpaceGroup(GG,n+1);                #Construct resolution;
     Gens:=Mod2RingGenerators(R,4,spacedim);               #Calculate generators
-    
-
 elif Length(arg) = 3 then                                 #resolution given, generators not
-
     R := arg[3];                                          #receive resolution from input;
     Gens:=Mod2RingGenerators(R,4,spacedim);               #recompute generators from the given resolution;
-
 else                                                      #Length(arg) >= 4
-
     R := arg[3];                                          #receive resolution from input;
     Gens:=arg[4];                                         #receive generators from input;
-
 fi;
-
 
 Gen1:=Gens[1];
 Gen2:=Gens[2];
@@ -2151,17 +2131,6 @@ od;
 #
 #Step-3 finished: degree-3-gen cup with degree-3-gen
 
-
-#NOTE: the list below hardcodes dim(H^6) for IT = 221..230 (indexed by IT-220), because the
-#length-6 resolution used on this "raw" path cannot determine the degree-6 coboundaries needed
-#to compute H^6 directly. It is therefore valid ONLY for IT in 221..230; do not reuse this path
-#for other groups.
-if Length(CupBase6Raw) = [62,11,31,26,45,20,19,6,40,7][IT-220] then
-    Print("");#Print("dim(H^6)=", [62,11,31,26,45,20,19,6,40,7][IT-220],".\n");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^6) = ", Length(CupBase6Raw) - [62,11,31,26,45,20,19,6,40,7][IT-220],"\n");
-fi;
-
 fi;
 #
 #
@@ -3635,9 +3604,6 @@ PGGen:=PGGens230[IT];
 
 G:=Group(Concatenation([T1,T2,T3],PGGen));
 Gp:=AffineCrystGroupOnRight(GeneratorsOfGroup(TransposedMatrixGroup(G)));
-if IT=222 then
-    Gp:=SpaceGroupIT(3,222);
-fi;
 
 return SGC_ResolutionSpaceGroup(Gp,SGC_MaxRelationDegreeForIT(IT)+1);
 end;
@@ -4393,13 +4359,6 @@ fi;
 
 R:=SGC_ResolutionForIT(arg[1]);
 Context:=SGC_CohomologyData(arg[1],R);
-if Length(Context.gen3Failed) > 0 then
-    Print("NOTE: degree-3 explicit cocycle(s) ", Context.gen3Failed,
-          " for IT=", Context.IT, " do not transport\n");
-    Print("to this resolution; those generator slots are filled with GAP-computed ring\n");
-    Print("generators. Their names label a deterministic basis completion, not the class\n");
-    Print("of the stored explicit cocycle.\n");
-fi;
 Print("===========================================\n");
 Print("Mod-2 Cohomology Ring of Group No. ", Context.IT, ":\n");
 SGC_PrintMod2RingData(Context.ring);
