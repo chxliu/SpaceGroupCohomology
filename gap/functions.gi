@@ -1,5 +1,5 @@
 # Copyright (c) Chunxiao Liu and Weicheng Ye 2024
-# Reference: Chunxiao Liu, Weicheng Ye, arXiv:2410.03607
+# Reference: Chunxiao Liu, Weicheng Ye, arXiv:2410.03607v3
 #
 #
 # In this file (gap/functions.gi) you will find:
@@ -13,6 +13,10 @@
 # Mod2RingGensAndRels(IT [,3,R,gens]);
 # PointGroupTranslationExtension();
 # IrreducibleWyckoffPoints();
+# SGC_ResolutionForIT(IT);
+# GroupCohomologyMod2(IT) or GroupCohomologyMod2(IT,R);
+# WPCohomologyTable(IT) or WPCohomologyTable(IT,R);
+# WPCohomologyClass(IT,WPs) or WPCohomologyClass(IT,R,WPs);
 # SpaceGroupCohomologyRingGapInterface(IT);
 #
 #
@@ -564,21 +568,35 @@ local
         uCocycle, vCocycle, uvCocycle, uChainMap, ww,
         sol, sol1, solrel, cc, CB, TR,
         BasisP, BasisQ, SmithRecord, IToPosition,
+        returnData, maxRelationDegree, relations, generatorNames, ringData,
         #NonNegativeVec,
         i,j,p,q,r,s,t,u,v,w,x,y,z, ln, rk, rk1, ip,iq,ir,is,it,iu,iv,iw,ix,iy,iz,sw;
 
 #Arguments: arg[1] = IT (# of space group); arg[2] = spacedim (2 or 3, default 3);
-#           arg[3] = R (resolution); arg[4] = Gens (generators).
-#The highest relation degree is NOT taken from the arguments; it is derived from the
-#resolution length as n := Length(Size(R))-1.
+#           arg[3] = R (resolution); arg[4] = Gens (generators);
+#           arg[5] = true requests structured, silent output (internal use);
+#           arg[6] = optional explicit relation-degree cap (internal use);
+#           arg[7] = optional generator names (internal use for an untagged R).
+#Without arg[6], the highest relation degree is derived from the resolution length
+#as n := Length(Size(R))-1.
 #e.g.: Mod2RingGensAndRels(89);                 #builds its own resolution+generators
 #e.g.: Mod2RingGensAndRels(89,3);               #3 = spacedim
 #e.g.: Mod2RingGensAndRels(89,3,R89);           #(R received, generators recomputed)
 #e.g.: Mod2RingGensAndRels(89,3,R89,Gens);      #standard call from SpaceGroupCohomologyRingGapInterface
 
 
-if Length(arg)=0 or not IsInt(arg[1]) or arg[1] < 1 or arg[1] > 230 then
+if Length(arg)=0 or not ((IsInt(arg[1]) and arg[1] >= 1 and arg[1] <= 230)
+                         or (arg[1] = fail and Length(arg) >= 7)) then
     Error("Mod2RingGensAndRels: IT must be 1..230\n");
+fi;
+
+returnData := Length(arg) >= 5 and arg[5] = true;
+maxRelationDegree := fail;
+if Length(arg) >= 6 then
+    if not IsInt(arg[6]) or not arg[6] in [6,8,12] then
+        Error("Mod2RingGensAndRels: relation-degree cap must be 6, 8, or 12\n");
+    fi;
+    maxRelationDegree := arg[6];
 fi;
 
 if Length(arg)=1 then
@@ -591,8 +609,6 @@ fi;
 
 
 IT := arg[1];  #Group number in International Table for Crystallography (ITC)
-
-Print("===========================================\n");
 #Print("Begin Group No. ", IT, ":\n");
 
 
@@ -635,7 +651,9 @@ Gen6:=[];
 #completes a basis of H^6 from classes outside the decomposable (cup-product) span.
 #CR_Mod2CocyclesAndCoboundaries(R,6) inside needs the degree-7 module, hence the
 #resolution-length guard (Category C resolutions are built to length 13 anyway).
-if (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
+if IT = fail and Length(Gens) >= 6 then
+    Gen6 := Gens[6];
+elif (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
     GensGAP6 := Mod2RingGenerators(R,6,spacedim);
     Gen6 := GensGAP6[6];
 fi;
@@ -675,6 +693,16 @@ TR:=HomToIntegersModP(R,2);            #Apply the Hom functor.
 
 n:=Length(Size(R))-1;     #This is the highest degree at which the relations are calculated for groups No. <= 220.
                           #for 221, Length(Size(R)) = 6, n = 5, and we will use the "raw code" to calculate relations at degree 6.
+if maxRelationDegree <> fail then
+    if maxRelationDegree > n then
+        Error("Mod2RingGensAndRels: resolution only supports relations through degree ",
+              n, ", but degree ", maxRelationDegree, " was requested\n");
+    fi;
+    n := maxRelationDegree;
+fi;
+if IT = fail and n < 6 then
+    Error("Mod2RingGensAndRels: an untagged resolution must support relations through degree 6\n");
+fi;
 
 
 CB:=[];
@@ -1412,7 +1440,7 @@ CupBase6Raw:=[];
 
 #Below starts the "Raw Method" for the degree 6 relations for groups 221-230, part1
 #
-if Length(Size(R)) = 6 then
+if n = 5 then
 
     #M1 is Dim(R6) x Dim(R5);
 
@@ -1522,7 +1550,7 @@ rk:=SGC_RankMod2(RelReduceMat);
 #
 #
 #
-if Length(Size(R)) > 6 then
+if n >= 6 then
 
 #Step-1 begins here: degree-5 cup with degree-1-gen
 #
@@ -2153,7 +2181,7 @@ fi;
 #
 #The "if" below is the one that starts working on the r=7 and r=8 relations, which is executed only when Gen4 is non-empty!
 
-if Length(Size(R)) >= 9 then
+if n >= 8 then
 
 ####################### r = 7 ##########################
 
@@ -2996,7 +3024,7 @@ fi;
 #The per-step logic reproduces the r=7/r=8 Steps verbatim, parameterized by
 #degrees and offsets instead of hand-copied per degree split.
 
-if Length(Size(R)) >= 13 then
+if n >= 12 then
 
 #CupRelByDeg[d] aliases the (mutable) degree-d relation list, so the
 #relation-reduction preparation can address CupRel(d)Lett by degree.
@@ -3288,15 +3316,10 @@ fi;
 #
 ####   Begin printing cohomology ring   ####
 #
-mono:=List(List([1..Sum(GenDimAll)],x->GensLett[x]),x->Letter2Monomial(x,GenDimAll,GENNAMES[IT]));
-Print("Mod-2 Cohomology Ring of Group No. ", IT, ":\n");
-Print("Z2[", JoinStringsWithSeparator(mono,","), "]");
-
-
 #Collect the relation lists that exist on this run: degrees 2..6 always,
 #7..8 only when the r=7/r=8 block ran, 9..12 only for the degree-6 generator
 #groups (resolution length 13). CupRel7Lett etc. are locals that stay
-#unassigned otherwise, so the gates must match those blocks' resolution-length
+#unassigned otherwise, so the gates must match those blocks' relation-degree
 #conditions exactly.
 CupRelByDeg := [];
 CupRelByDeg[2] := CupRel2Lett;
@@ -3304,49 +3327,108 @@ CupRelByDeg[3] := CupRel3Lett;
 CupRelByDeg[4] := CupRel4Lett;
 CupRelByDeg[5] := CupRel5Lett;
 CupRelByDeg[6] := CupRel6Lett;
-if Length(Size(R)) >= 9 then
+if n >= 8 then
     CupRelByDeg[7] := CupRel7Lett;
     CupRelByDeg[8] := CupRel8Lett;
 fi;
-if Length(Size(R)) >= 13 then
+if n >= 12 then
     CupRelByDeg[9]  := CupRel9Lett;
     CupRelByDeg[10] := CupRel10Lett;
     CupRelByDeg[11] := CupRel11Lett;
     CupRelByDeg[12] := CupRel12Lett;
 fi;
 
-mono := 0;
+relations := [];
 for r in [2..12] do
     if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
-        if mono = 0 then           #mono = 1 means at least one relation already printed
-            Print("/<R", r);
-        else
-            Print(",R", r);
-        fi;
-        mono := 1;
+        Add(relations,[r,CupRelByDeg[r]]);
     fi;
 od;
-if mono = 1 then
-    Print(">\n");
+
+if Length(arg) >= 7 then
+    generatorNames := arg[7];
+else
+    generatorNames := GENNAMES[IT];
+fi;
+if Length(generatorNames) <> Sum(GenDimAll) then
+    Error("Mod2RingGensAndRels: generator-name count does not match generator count for IT=", IT, "\n");
 fi;
 
-for r in [2..12] do
-    if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
-        Print(Concatenation("R", String(r), ":  "));
-        List(CupRelByDeg[r],x->PrintMonomialString(x,GenDimAll,"+",GENNAMES[IT]));
+ringData := rec(
+    IT := IT,
+    generators := rec(
+        names := ShallowCopy(generatorNames),
+        degrees := ShallowCopy(GenDegAll),
+        classes := [Gen1,Gen2,Gen3,Gen4,Gen5,Gen6]
+    ),
+    relations := relations,
+    relationsByDegree := CupRelByDeg,
+    bases := [CupBase1Lett,CupBase2Lett,CupBase3Lett,CupBase4Lett],
+    generatorDimensions := ShallowCopy(GenDimAll),
+    generatorDegrees := ShallowCopy(GenDegAll),
+    maxRelationDegree := n
+);
+
+if not returnData then
+    mono:=List(List([1..Sum(GenDimAll)],x->GensLett[x]),x->Letter2Monomial(x,GenDimAll,generatorNames));
+    Print("Z2[", JoinStringsWithSeparator(mono,","), "]");
+
+    mono := 0;
+    for r in [2..12] do
+        if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
+            if mono = 0 then           #mono = 1 means at least one relation already printed
+                Print("/<R", r);
+            else
+                Print(",R", r);
+            fi;
+            mono := 1;
+        fi;
+    od;
+    if mono = 1 then
+        Print(">\n");
+    else
         Print("\n");
     fi;
-od;
+
+    for r in [2..12] do
+        if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
+            Print(Concatenation("R", String(r), ":  "));
+            List(CupRelByDeg[r],x->PrintMonomialString(x,GenDimAll,"+",generatorNames));
+            Print("\n");
+        fi;
+    od;
+
+fi;
 
 ####   End printing cohomology ring   ####
 #
 
-
-Print("===========================================\n");
-
-
-return [CupBase1Lett,CupBase2Lett,CupBase3Lett,CupBase4Lett];
+if returnData then
+    return ringData;
+fi;
+return ringData.bases;
 end;
+#####################################################################
+#####################################################################
+
+SGC_PrintMod2RingData:=function(Data)
+local mono, pair, letters;
+
+letters:=CohomologyBasis(List([1..Length(Data.generators.names)],i->1));
+mono:=List(letters,x->Letter2Monomial(x,Data.generatorDimensions,Data.generators.names));
+Print("Z2[", JoinStringsWithSeparator(mono,","), "]");
+if Length(Data.relations) > 0 then
+    Print("/<",JoinStringsWithSeparator(List(Data.relations,x->Concatenation("R",String(x[1]))),","),">\n");
+else
+    Print("\n");
+fi;
+for pair in Data.relations do
+    Print(Concatenation("R", String(pair[1]), ":  "));
+    List(pair[2],x->PrintMonomialString(x,Data.generatorDimensions,"+",Data.generators.names));
+    Print("\n");
+od;
+end;
+
 #####################################################################
 #####################################################################
 
@@ -3536,22 +3618,47 @@ end;
 #####################################################################
 #####################################################################
 
-SpaceGroupCohomologyRingGapInterface:=function(arg)
+SGC_ResolutionForIT:=function(IT)
+local T1,T2,T3,PGGen,G,Gp;
+
+if not IsInt(IT) or IT < 1 or IT > 230 then
+    Error("SGC_ResolutionForIT: IT must be 1..230\n");
+fi;
+if not IsBound(PGGens230) then
+    Error("SGC_ResolutionForIT: PGGens230 is not loaded\n");
+fi;
+
+T1:=[[1,0,0,1],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+T2:=[[1,0,0,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]];
+T3:=[[1,0,0,0],[0,1,0,0],[0,0,1,1],[0,0,0,1]];
+PGGen:=PGGens230[IT];
+
+G:=Group(Concatenation([T1,T2,T3],PGGen));
+Gp:=AffineCrystGroupOnRight(GeneratorsOfGroup(TransposedMatrixGroup(G)));
+if IT=222 then
+    Gp:=SpaceGroupIT(3,222);
+fi;
+
+return SGC_ResolutionSpaceGroup(Gp,SGC_MaxRelationDegreeForIT(IT)+1);
+end;
+
+#####################################################################
+#####################################################################
+
+SGC_CohomologyData:=function(arg)
 local
     IT,
-    T1, T2, T3, C2, C2p, M, P, C3,
+    C2, C2p, M, P, C3,
     PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind,
     o0,o1,o2,o3,o4,o5,
-    G,Gp,R,CB,
+    R,CB,
     GenName_standard, Rdim,lst1,lst2,lst3,lst4,lst5,lst6,lst1to4,
     MatToPow,GapToPow,Fbarhomotopyindinv,Invofg,Prodg1g2Pow,IndToElem,
     Homotopydeg1,Homotopydeg2,Homotopydeg3,Homotopydeg4,
     func,funcs,receive,FuncVal,TopoInvdeg3,
     Gen1, Gen2, Gen3, Gen4, GensGAP, GensDim1to4, GensDeg1to4,
     Gen3Failed, Decomp3, dimH1, dimH2, known, rk0, gcand, savedBreakOnError,
-    BasesLett, Base1Lett, Base2Lett, Base3Lett, Base4Lett, LSMLett,
-    g1,g2,g3,overcomplete_g,Mat,mat1,mat2,vec,sol,LSMMat,CountLSM,
-    v1,v2,v3,x1,y1,z1,x2,y2,z2,x3,y3,z3,
+    RingData, BasesLett, Base3Lett,
     i,j,k,p,x,y;
 
 #####################################################################
@@ -3755,8 +3862,9 @@ end;
 
     ####################BEGIN TO READ THE INPUT##################
 
-if Length(arg) <> 1 or not IsInt(arg[1]) or arg[1] < 1 or arg[1] > 230 then
-    Error("SpaceGroupCohomologyRingGapInterface: IT must be 1..230\n");
+if (Length(arg) <> 1 and Length(arg) <> 2)
+   or not IsInt(arg[1]) or arg[1] < 1 or arg[1] > 230 then
+    Error("cohomology API: expected IT or (IT,R), with IT in 1..230\n");
 fi;
 
 IT:=arg[1];
@@ -3764,13 +3872,18 @@ IT:=arg[1];
 #The data globals below come from gap/data.gi. Fail with a clear message if
 #that file was not Read in first.
 if not (IsBound(PGGens230) and IsBound(funcs230) and IsBound(IWP) and IsBound(GENNAMES)) then
-    Error("SpaceGroupCohomologyRingGapInterface: required data not loaded -- Read the data file defining PGGens230, funcs230, IWP and GENNAMES before calling.\n");
+    Error("cohomology API: required data not loaded -- Read the data file defining PGGens230, funcs230, IWP and GENNAMES before calling.\n");
 fi;
-
-T1:=[[1,0,0,1],[0,1,0,0],[0,0,1,0],[0,0,0,1]]; #standard translation T1
-T2:=[[1,0,0,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]]; #standard translation T2
-T3:=[[1,0,0,0],[0,1,0,0],[0,0,1,1],[0,0,0,1]]; #standard translation T3
-
+if Length(arg) = 2 then
+    if not (IsRecord(arg[2]) or IsComponentObjectRep(arg[2])) or not IsBound(arg[2]!.dimension)
+       or not IsBound(arg[2]!.boundary) or not IsBound(arg[2]!.elts) then
+        Error("cohomology API: R must be a HAP resolution\n");
+    fi;
+    if Length(Size(arg[2]))-1 < SGC_MaxRelationDegreeForIT(IT) then
+        Error("cohomology API: R does not reach the required relation degree ",
+              SGC_MaxRelationDegreeForIT(IT), " for IT=", IT, "\n");
+    fi;
+fi;
 
 PGMat33 := [];
 PGMat := [];     #forward 4x4 point-group representatives; PGMat[i] = PGMatinv[i]^(-1),
@@ -3848,20 +3961,12 @@ else
 fi;
 
 
-#Standard resolution is generated by the following:
-G:= Group(Concatenation([T1,T2,T3],PGGen));
-Gp:=AffineCrystGroupOnRight(GeneratorsOfGroup(TransposedMatrixGroup(G)));
-
-#Non-standard resolution is generated by the following:
-if IT=222 then
-    Gp:=SpaceGroupIT(3,222);
+if Length(arg) = 1 then
+    R:=SGC_ResolutionForIT(IT);
+else
+    R:=arg[2];
 fi;
-
-#Below constructs the resolution for the group:
-#
-R:=SGC_ResolutionSpaceGroup(Gp,SGC_MaxRelationDegreeForIT(IT)+1);
-#
-#Resolution for the group now constructed.
+#Resolution for the group now available.
 #R!.elts are column-convention affine matrices in the group generated by
 #[T1,T2,T3] and PGGen (CrystallographicComplex standardizes -- a no-op here,
 #TranslationBasis is the identity -- and transposes back before returning),
@@ -3923,10 +4028,6 @@ for func in funcs[3] do
 od;
 
 if Length(Gen3Failed) > 0 then
-    Print("NOTE: degree-3 explicit cocycle(s) ", Gen3Failed, " for IT=", IT, " do not transport\n");
-    Print("to this resolution; those generator slots are filled with GAP-computed ring\n");
-    Print("generators. Their names label a deterministic basis completion, not the class\n");
-    Print("of the stored explicit cocycle.\n");
     #Degree-3 decomposable classes: cup products H^1 x H^2 (this includes all
     #triple products of degree-1 classes, since H^1 x H^1 lands in H^2).
     dimH1 := Length(CB[1].cocycleToClass(List([1..R!.dimension(1)],x->0)));
@@ -3977,16 +4078,51 @@ if Length(Gen4) > 0 and Length(SGC_RowBasisMod2(Gen4)) < Length(Gen4) then
 fi;
 
 
-BasesLett := Mod2RingGensAndRels(IT,3,R,[Gen1,Gen2,Gen3,Gen4]);
+RingData := Mod2RingGensAndRels(IT,3,R,[Gen1,Gen2,Gen3,Gen4],true,
+                                SGC_MaxRelationDegreeForIT(IT));
+BasesLett := RingData.bases;
 
 GensDim1to4 := [Length(Gen1),Length(Gen2),Length(Gen3),Length(Gen4)];
 GensDeg1to4:=Concatenation(List([1..Length(Gen1)],x->1),List([1..Length(Gen2)],x->2),List([1..Length(Gen3)],x->3),List([1..Length(Gen4)],x->4));
 
-Base1Lett := BasesLett[1];
-Base2Lett := BasesLett[2];
 Base3Lett := BasesLett[3];
-Base4Lett := BasesLett[4];
 
+return rec(
+    IT := IT,
+    resolution := R,
+    ring := RingData,
+    gen3Failed := Gen3Failed,
+    base3Letters := Base3Lett,
+    generatorDimensions := GensDim1to4,
+    generatorDegrees := GensDeg1to4,
+    pointGroupIndices := PGind,
+    pointGroupMatrices := PGMat,
+    topoInvdeg3 := TopoInvdeg3,
+    productPower := Prodg1g2Pow,
+    indToElem := IndToElem
+);
+end;
+
+#####################################################################
+#####################################################################
+
+SGC_WPCohomologyData:=function(Context)
+local
+    IT, Base3Lett, GensDim1to4, PGind, PGMat,
+    TopoInvdeg3, Prodg1g2Pow, IndToElem,
+    LSMLett, overcomplete_g, Mat, mat1, mat2, vec, sol, LSMMat, CountLSM,
+    g1,g2,g3,v1,v2,v3,x1,y1,z1,x2,y2,z2,x3,y3,z3,
+    table, coordinates, entry, label, key, target, equalPosition,
+    zeroCoordinate, j, i, x;
+
+IT:=Context.IT;
+Base3Lett:=Context.base3Letters;
+GensDim1to4:=Context.generatorDimensions;
+PGind:=Context.pointGroupIndices;
+PGMat:=Context.pointGroupMatrices;
+TopoInvdeg3:=Context.topoInvdeg3;
+Prodg1g2Pow:=Context.productPower;
+IndToElem:=Context.indToElem;
 
 #Print all the elements of the mod-2 cohomology at degree 3:
 
@@ -4073,23 +4209,203 @@ if RankMatrix(Mat*Z(2)) = Length(Base3Lett) and RankMatrix(Mat*Z(2)) = Length(Ma
 
     LSMMat := List(TransposedMat(InverseMatMod(Mat,2)));
     LSMLett := List([1..Length(CountLSM)],x->LSMMat[x]);
-    Print("LSM:\n");
-    j := 1;
-    for i in [1..Length(IWP[IT])] do
-        Print(IWP[IT][i][1]," ");
-        if (IWP[IT][i][2] = []) = false then
-            PrintMonomialString(IndToElem(LSMLett[j],Base3Lett),GensDim1to4,"+",GENNAMES[IT],"\n");
-            j := j+1;
-        else
-            Print("\n");
-        fi;
-    od;
-    
 else
-    Print("Full Rank NOT achieved: ", RankMatrix(Mat*Z(2)),"!=", Length(Base3Lett), "or", RankMatrix(Mat*Z(2)),"!=", Length(Mat),".\n");
+    Error("WPCohomologyTable: full rank not achieved: ", RankMatrix(Mat*Z(2)),
+          "!=", Length(Base3Lett), " or ", RankMatrix(Mat*Z(2)),
+          "!=", Length(Mat), "\n");
 fi;
 
+table:=rec();
+coordinates:=rec();
+zeroCoordinate:=List([1..Length(Base3Lett)],x->0);
+j:=1;
+for entry in IWP[IT] do
+    label:=entry[1];
+    equalPosition:=Position(label,'=');
+    if equalPosition = fail then
+        key:=label;
+        target:=fail;
+    else
+        key:=label{[1..equalPosition-1]};
+        target:=label{[equalPosition+1..Length(label)]};
+    fi;
 
+    if entry[2] <> [] then
+        coordinates.(key):=ShallowCopy(LSMLett[j]);
+        j:=j+1;
+    elif target = "empty" or target = fail then
+        coordinates.(key):=ShallowCopy(zeroCoordinate);
+    else
+        if not IsBound(coordinates.(target)) then
+            Error("WPCohomologyTable: alias target ", target,
+                  " is not defined before ", key, " for IT=", IT, "\n");
+        fi;
+        coordinates.(key):=ShallowCopy(coordinates.(target));
+    fi;
+    table.(key):=IndToElem(coordinates.(key),Base3Lett);
+od;
+
+return rec(
+    table:=table,
+    coordinates:=coordinates,
+    rawIWP:=IWP[IT],
+    lsmLetters:=LSMLett
+);
+end;
+
+#####################################################################
+#####################################################################
+
+SGC_PrintWPCohomologyData:=function(Context,WPData)
+local entry,j;
+
+Print("LSM:\n");
+j:=1;
+for entry in WPData.rawIWP do
+    Print(entry[1]," ");
+    if entry[2] <> [] then
+        PrintMonomialString(Context.indToElem(WPData.lsmLetters[j],Context.base3Letters),
+                            Context.generatorDimensions,"+",
+                            Context.ring.generators.names,"\n");
+        j:=j+1;
+    else
+        Print("\n");
+    fi;
+od;
+end;
+
+#####################################################################
+#####################################################################
+
+SGC_PrintCohomologyClass:=function(Context,Class)
+if Length(Class) = 0 then
+    Print("0\n");
+else
+    PrintMonomialString(Class,Context.ring.generatorDimensions,"+",
+                        Context.ring.generators.names,"\n");
+fi;
+end;
+
+#####################################################################
+#####################################################################
+
+GroupCohomologyMod2:=function(arg)
+local Context, R;
+
+if Length(arg) = 1 and IsInt(arg[1]) then
+    R:=SGC_ResolutionForIT(arg[1]);
+elif Length(arg) = 2 and IsInt(arg[1]) then
+    R:=arg[2];
+else
+    Error("GroupCohomologyMod2: expected IT or (IT,R)\n");
+fi;
+
+Context:=SGC_CohomologyData(arg[1],R);
+SGC_PrintMod2RingData(Context.ring);
+end;
+
+#####################################################################
+#####################################################################
+
+WPCohomologyTable:=function(arg)
+local Context, R, WPData, entry, equalPosition, key;
+
+if Length(arg) = 1 and IsInt(arg[1]) then
+    R:=SGC_ResolutionForIT(arg[1]);
+elif Length(arg) = 2 and IsInt(arg[1]) then
+    R:=arg[2];
+else
+    Error("WPCohomologyTable: expected IT or (IT,R)\n");
+fi;
+
+Context:=SGC_CohomologyData(arg[1],R);
+WPData:=SGC_WPCohomologyData(Context);
+for entry in WPData.rawIWP do
+    equalPosition:=Position(entry[1],'=');
+    if equalPosition = fail then
+        key:=entry[1];
+    else
+        key:=entry[1]{[1..equalPosition-1]};
+    fi;
+    Print(key," ");
+    SGC_PrintCohomologyClass(Context,WPData.table.(key));
+od;
+end;
+
+#####################################################################
+#####################################################################
+
+WPCohomologyClass:=function(arg)
+local R, WPs, Context, WPData, rawLabels, coordinate, wp, equalPosition, key, i, Class;
+
+if Length(arg) = 2 and IsInt(arg[1]) then
+    WPs:=arg[2];
+elif Length(arg) = 3 and IsInt(arg[1]) then
+    R:=arg[2];
+    WPs:=arg[3];
+else
+    Error("WPCohomologyClass: expected (IT,WPs) or (IT,R,WPs)\n");
+fi;
+if not IsList(WPs) or IsString(WPs)
+   or not ForAll(WPs,IsString) then
+    Error("WPCohomologyClass: WPs must be a list of Wyckoff-position labels\n");
+fi;
+if Length(arg) = 2 then
+    R:=SGC_ResolutionForIT(arg[1]);
+fi;
+
+Context:=SGC_CohomologyData(arg[1],R);
+WPData:=SGC_WPCohomologyData(Context);
+rawLabels:=List(WPData.rawIWP,x->x[1]);
+coordinate:=List([1..Length(Context.base3Letters)],x->0);
+for wp in WPs do
+    equalPosition:=Position(wp,'=');
+    if equalPosition = fail then
+        key:=wp;
+    else
+        if not wp in rawLabels then
+            Error("WPCohomologyClass: unknown annotated Wyckoff position ",wp,
+                  " for IT=",arg[1],"\n");
+        fi;
+        key:=wp{[1..equalPosition-1]};
+    fi;
+    if not IsBound(WPData.coordinates.(key)) then
+        Error("WPCohomologyClass: unknown Wyckoff position ",wp,
+              " for IT=",arg[1],"\n");
+    fi;
+    for i in [1..Length(coordinate)] do
+        coordinate[i]:=RemInt(coordinate[i]+WPData.coordinates.(key)[i],2);
+    od;
+od;
+Class:=Context.indToElem(coordinate,Context.base3Letters);
+SGC_PrintCohomologyClass(Context,Class);
+end;
+
+#####################################################################
+#####################################################################
+
+SpaceGroupCohomologyRingGapInterface:=function(arg)
+local R, Context, WPData;
+
+if Length(arg) <> 1 or not IsInt(arg[1]) or arg[1] < 1 or arg[1] > 230 then
+    Error("SpaceGroupCohomologyRingGapInterface: IT must be 1..230\n");
+fi;
+
+R:=SGC_ResolutionForIT(arg[1]);
+Context:=SGC_CohomologyData(arg[1],R);
+if Length(Context.gen3Failed) > 0 then
+    Print("NOTE: degree-3 explicit cocycle(s) ", Context.gen3Failed,
+          " for IT=", Context.IT, " do not transport\n");
+    Print("to this resolution; those generator slots are filled with GAP-computed ring\n");
+    Print("generators. Their names label a deterministic basis completion, not the class\n");
+    Print("of the stored explicit cocycle.\n");
+fi;
+Print("===========================================\n");
+Print("Mod-2 Cohomology Ring of Group No. ", Context.IT, ":\n");
+SGC_PrintMod2RingData(Context.ring);
+Print("===========================================\n");
+WPData:=SGC_WPCohomologyData(Context);
+SGC_PrintWPCohomologyData(Context,WPData);
 return true;
 end;
 

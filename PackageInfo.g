@@ -4,14 +4,14 @@
 ##
 ##  Reference: Chunxiao Liu and Weicheng Ye,
 ##    "Crystallography, group cohomology, and Lieb-Schultz-Mattis constraints",
-##    SciPost Phys. 18, 161 (2025).  arXiv:2410.03607
+##    SciPost Phys. 18, 161 (2025).  arXiv:2410.03607v3
 ##
 SetPackageInfo( rec(
 
   PackageName    := "SpaceGroupCohomology",
   Subtitle       := "Mod-2 cohomology rings and LSM anomaly classes for the 230 space groups",
-  Version        := "2.0.0",
-  Date           := "2026-07-05",
+  Version        := "2.1.0",
+  Date           := "2026-08-09",
   License        := "GPL-2.0-or-later",
 
   ##  The four URL fields below are required by GAP's package validator and

@@ -6,7 +6,15 @@ gap> START_TEST("SpaceGroupCohomology: smoke test");
 gap> Length(PGGens230) = 230 and Length(IWP) = 230 and Length(GENNAMES) = 230 and Length(funcs230) = 230;
 true
 
-# Test 1: Simple triclinic group
+# Test 1: Simple triclinic group.  Instrument the existing pinned call to
+# guarantee that the compatibility wrapper constructs exactly one resolution,
+# and retain that resolution for the focused public-presentation checks below.
+gap> originalResolutionBuilder := SGC_ResolutionSpaceGroup;;
+gap> resolutionCallCount := 0;;
+gap> Rapi := fail;;
+gap> resolutionBuilderWasReadOnly := IsReadOnlyGlobal("SGC_ResolutionSpaceGroup");;
+gap> if resolutionBuilderWasReadOnly then MakeReadWriteGlobal("SGC_ResolutionSpaceGroup"); fi;;
+gap> SGC_ResolutionSpaceGroup := function(G,n) resolutionCallCount := resolutionCallCount+1; Rapi := originalResolutionBuilder(G,n); return Rapi; end;;
 gap> SpaceGroupCohomologyRingGapInterface(1);
 ===========================================
 Mod-2 Cohomology Ring of Group No. 1:
@@ -16,6 +24,54 @@ R2:  Ax^2  Ay^2  Az^2
 LSM:
 1a Ax.Ay.Az
 true
+gap> SGC_ResolutionSpaceGroup := originalResolutionBuilder;;
+gap> if resolutionBuilderWasReadOnly then MakeReadOnlyGlobal("SGC_ResolutionSpaceGroup"); fi;;
+gap> resolutionCallCount;
+1
+
+# Public 2.1 presentation APIs.  The IT-only forms reuse Rapi through a narrow
+# substitution of the resolution factory; all cohomology and formatting work
+# remains real.  The supplied-resolution forms use the same Rapi directly.
+gap> originalResolutionForIT := SGC_ResolutionForIT;;
+gap> resolutionForITWasReadOnly := IsReadOnlyGlobal("SGC_ResolutionForIT");;
+gap> if resolutionForITWasReadOnly then MakeReadWriteGlobal("SGC_ResolutionForIT"); fi;;
+gap> SGC_ResolutionForIT := function(IT) return Rapi; end;;
+gap> GroupCohomologyMod2(1);;
+Z2[Ax,Ay,Az]/<R2>
+R2:  Ax^2  Ay^2  Az^2
+gap> GroupCohomologyMod2(1,Rapi);;
+Z2[Ax,Ay,Az]/<R2>
+R2:  Ax^2  Ay^2  Az^2
+gap> WPCohomologyTable(1);;
+1a Ax.Ay.Az
+gap> WPCohomologyTable(1,Rapi);;
+1a Ax.Ay.Az
+gap> WPCohomologyClass(1,["1a"]);;
+Ax.Ay.Az
+gap> WPCohomologyClass(1,Rapi,["1a"]);;
+Ax.Ay.Az
+gap> WPCohomologyClass(1,Rapi,["1a","1a"]);;
+0
+gap> SGC_ResolutionForIT := originalResolutionForIT;;
+gap> if resolutionForITWasReadOnly then MakeReadOnlyGlobal("SGC_ResolutionForIT"); fi;;
+
+# Multi-digit labels stay in source IWP order, aliases print their canonical
+# labels and classes, and source-declared empty positions print zero.
+gap> WPCohomologyTable(70);;
+8a Acp^2.Ac+Acp.Ac^2+Cc
+8b Cc
+16c Ai^3+Ai.Bxyxzyz
+16d Ai.Bxyxzyz
+gap> WPCohomologyTable(143);;
+1a Az.Bxy
+1b Az.Bxy
+1c Az.Bxy
+gap> WPCohomologyTable(147);;
+1a Ai^2.Az+Ai^3+Ai.Bxy+Az.Bxy
+1b Ai^2.Az+Az.Bxy
+2d 0
+3e Ai.Bxy+Az.Bxy
+3f Az.Bxy
 
 # Test 2: Orthorhombic group
 gap> SpaceGroupCohomologyRingGapInterface(16);

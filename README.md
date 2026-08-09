@@ -5,7 +5,7 @@ Mod-2 cohomology rings and Lieb–Schultz–Mattis anomaly classes for the
 
 Reference: Chunxiao Liu and Weicheng Ye, *Crystallography, group cohomology,
 and Lieb–Schultz–Mattis constraints*, SciPost Phys. **18**, 161 (2025)
-([arXiv:2410.03607](https://arxiv.org/abs/2410.03607)).
+([arXiv:2410.03607v3](https://arxiv.org/abs/2410.03607v3)).
 
 ## Installation
 
@@ -51,8 +51,48 @@ true
 gap> SpaceGroupCohomologyRingGapInterface(191);   # any IT number in 1..230
 ```
 
-That single call prints the mod-2 cohomology ring presentation and the
-LSM anomaly classes for the given space group.
+That compatibility interface prints a titled mod-2 cohomology ring
+presentation followed by the LSM anomaly table for the given space group,
+then returns `true`. It constructs one resolution at the start of the call
+and reuses that same resolution for both calculations.
+
+Version 2.1 also provides three focused, print-only entry points. The
+IT-only forms construct a resolution for the International Tables number
+`IT`; supplying `R` reuses a resolution previously constructed for that same
+space group:
+
+```gap
+gap> GroupCohomologyMod2(IT);;
+gap> GroupCohomologyMod2(IT, R);;
+
+gap> WPCohomologyTable(IT);;
+gap> WPCohomologyTable(IT, R);;
+
+gap> WPCohomologyClass(IT, ["4a", "4b"]);;
+gap> WPCohomologyClass(IT, R, ["4a", "4b"]);;
+```
+
+`GroupCohomologyMod2` prints only the symbolic `Z2` ring presentation; there
+is no generic `GroupCohomologyMod2(R)` form. `WPCohomologyTable` prints one
+line per canonical irreducible-Wyckoff-position label followed by its symbolic
+degree-3 class. `WPCohomologyClass` prints the symbolic sum over `GF(2)` for
+the requested labels. Repeated labels cancel in pairs, an unknown label is an
+error, and the zero class is printed as `0`.
+
+These three functions print their results directly and do not return a
+machine-readable value. Products use GAP dots; for space group 1, for example:
+
+```gap
+gap> GroupCohomologyMod2(1);;
+Z2[Ax,Ay,Az]/<R2>
+R2:  Ax^2  Ay^2  Az^2
+gap> WPCohomologyTable(1);;
+1a Ax.Ay.Az
+gap> WPCohomologyClass(1, ["1a"]);;
+Ax.Ay.Az
+gap> WPCohomologyClass(1, ["1a", "1a"]);;
+0
+```
 
 ## Reading the output
 
@@ -112,10 +152,12 @@ SpaceGroupCohomology/
 
 ## Testing
 
-`tst/smoke.tst` does two things in order:
+`tst/smoke.tst` does three things in order:
 
 1. A constant-time sanity check that all four data tables have 230 entries.
-2. Five real cohomology computations — space groups No. 1, 16, 22, 108,
+2. Public-API presentation checks for the IT and supplied-resolution
+   overloads, including Wyckoff labels and mod-2 cancellation.
+3. Five real cohomology computations — space groups No. 1, 16, 22, 108,
    and 219 — that exercise the full HAP-backed pipeline end-to-end and pin
    down the expected output. Any regression in the cup product, relations,
    or LSM-class code will then surface as a `Test` failure instead of
@@ -130,7 +172,8 @@ on a modern laptop, with group 219 the slowest of the smoke-test groups.
 
 ## Reference
 
-If this repository is useful for your research, please consider citing the [Scipost](https://www.scipost.org/SciPostPhys.18.5.161) article:
+If this repository is useful for your research, please consider citing the
+[SciPost](https://www.scipost.org/SciPostPhys.18.5.161) article:
 
 ```bibtex
 @Article{10.21468/SciPostPhys.18.5.161,
@@ -143,5 +186,21 @@ If this repository is useful for your research, please consider citing the [Scip
 	publisher={SciPost},
 	doi={10.21468/SciPostPhys.18.5.161},
 	url={https://scipost.org/10.21468/SciPostPhys.18.5.161},
+}
+```
+
+The updated preprint is
+[arXiv:2410.03607v3](https://arxiv.org/abs/2410.03607v3):
+
+```bibtex
+@Misc{liu2026crystallography,
+	title={Crystallography, Group Cohomology, and Lieb-Schultz-Mattis Constraints},
+	author={Chunxiao Liu and Weicheng Ye},
+	year={2026},
+	eprint={2410.03607},
+	archivePrefix={arXiv},
+	primaryClass={cond-mat.str-el},
+	note={Version 3},
+	url={https://arxiv.org/abs/2410.03607v3},
 }
 ```
