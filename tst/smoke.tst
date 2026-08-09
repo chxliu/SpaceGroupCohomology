@@ -51,7 +51,8 @@ gap> [batchedCounted,chainMapBuildCount,chainMapEvaluationCount];
 gap> originalResolutionForIT := SGC_ResolutionForIT;;
 gap> resolutionForITWasReadOnly := IsReadOnlyGlobal("SGC_ResolutionForIT");;
 gap> if resolutionForITWasReadOnly then MakeReadWriteGlobal("SGC_ResolutionForIT"); fi;;
-gap> SGC_ResolutionForIT := function(IT) return Rapi; end;;
+gap> resolutionForITRequests := [];;
+gap> SGC_ResolutionForIT := function(arg) Add(resolutionForITRequests,ShallowCopy(arg)); return Rapi; end;;
 gap> GroupCohomologyMod2(1);;
 Z2[Ax,Ay,Az]/<R2>
 R2:  Ax^2  Ay^2  Az^2
@@ -68,6 +69,8 @@ gap> WPCohomologyClass(1,Rapi,["1a"]);;
 Ax.Ay.Az
 gap> WPCohomologyClass(1,Rapi,["1a","1a"]);;
 0
+gap> resolutionForITRequests;
+[ [ 1 ], [ 1, 3 ], [ 1, 3 ] ]
 
 # Prepared Context data must avoid the unnecessary generic generator pass for
 # IT1, and the public APIs must accept one caller-owned Context/WPData pair.
@@ -81,31 +84,37 @@ gap> Mod2RingGenerators := originalMod2RingGenerators;;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
 gap> mod2RingGeneratorDegrees;
 [  ]
+gap> Set(RecNames(ContextApi));
+[ "IT", "isSGCCohomologyContext", "resolution", "ring" ]
+gap> cappedContextProbe := CALL_WITH_CATCH(function() return SGC_CohomologyData(1,Rapi,3); end,[]);;
+gap> [cappedContextProbe[1],cappedContextProbe[2].ring.maxRelationDegree,Length(cappedContextProbe[2].ring.bases)];
+[ true, 3, 3 ]
+gap> wpOverloadProbe := CALL_WITH_CATCH(function() return SGC_WPCohomologyData(1,Rapi); end,[]);;
+gap> [wpOverloadProbe[1],wpOverloadProbe[2].context.ring.maxRelationDegree,Length(wpOverloadProbe[2].context.ring.bases)];
+[ true, 3, 3 ]
 
 # Once the source IWP rows already span H3, WP construction must not evaluate
-# any additional topological-invariant candidates.  The synthetic point-group
-# matrix makes continued scanning observable without changing the IT1 IWP row.
-gap> ContextEarlyExit := ShallowCopy(ContextApi);; originalTopoInvdeg3 := ContextApi.topoInvdeg3;; topoInvdeg3Calls := 0;; nonemptyIWPCount := Number(IWP[1],x->x[2]<>[]);;
-gap> ContextEarlyExit.pointGroupMatrices := [[[-1,0,0,0],[0,-1,0,0],[0,0,1,0],[0,0,0,1]]];;
-gap> ContextEarlyExit.topoInvdeg3 := function(arg) topoInvdeg3Calls := topoInvdeg3Calls+1; if topoInvdeg3Calls <= nonemptyIWPCount then return CallFuncList(originalTopoInvdeg3,arg); fi; return List([1..Length(arg[2])],x->0); end;;
-gap> WPDataEarlyExit := SGC_WPCohomologyData(ContextEarlyExit);;
+# any additional topological-invariant candidates.  The optional observer keeps
+# this behavior visible without retaining evaluation closures in Context.
+gap> wpTopoObserverWasBound := IsBoundGlobal("SGC_WP_TOPO_INV_OBSERVER");;
+gap> wpTopoObserverWasReadOnly := wpTopoObserverWasBound and IsReadOnlyGlobal("SGC_WP_TOPO_INV_OBSERVER");;
+gap> if wpTopoObserverWasBound then wpSavedTopoObserver := ValueGlobal("SGC_WP_TOPO_INV_OBSERVER"); if wpTopoObserverWasReadOnly then MakeReadWriteGlobal("SGC_WP_TOPO_INV_OBSERVER"); fi; fi;;
+gap> topoInvdeg3Calls := 0;; nonemptyIWPCount := Number(IWP[1],x->x[2]<>[]);;
+gap> SGC_WP_TOPO_INV_OBSERVER := function(arg) topoInvdeg3Calls:=topoInvdeg3Calls+1; end;;
+gap> WPDataEarlyExit := SGC_WPCohomologyData(ContextApi);;
+gap> if wpTopoObserverWasBound then SGC_WP_TOPO_INV_OBSERVER := wpSavedTopoObserver; if wpTopoObserverWasReadOnly then MakeReadOnlyGlobal("SGC_WP_TOPO_INV_OBSERVER"); fi; else UnbindGlobal("SGC_WP_TOPO_INV_OBSERVER"); fi;;
 gap> [topoInvdeg3Calls,Number(IWP[1],x->x[2]<>[])];
 [ 1, 1 ]
 
-# The two-argument topological-invariant form is exactly the identity transform;
-# an explicitly supplied non-identity transform retains its old semantics.
-gap> topoFixture := IWP[1][1][2];; topoLetters := ContextApi.base3Letters;;
-gap> [ContextApi.topoInvdeg3(topoFixture,topoLetters)=ContextApi.topoInvdeg3(topoFixture,topoLetters,[[1]]),ContextApi.topoInvdeg3(topoFixture,topoLetters,[[0]])];
-[ true, [ 0 ] ]
 gap> WPDataApi := SGC_WPCohomologyData(ContextApi);;
-gap> [ContextApi.isSGCCohomologyContext,WPDataApi.isSGCWPCohomologyData,IsIdenticalObj(WPDataApi.context,ContextApi)];
-[ true, true, true ]
+gap> [ContextApi.isSGCCohomologyContext,WPDataApi.isSGCWPCohomologyData,IsIdenticalObj(WPDataApi.context,ContextApi),Set(RecNames(WPDataApi))];
+[ true, true, true, [ "context", "coordinates", "isSGCWPCohomologyData", "rawIWP", "table" ] ]
 gap> originalCohomologyData := SGC_CohomologyData;; originalWPCohomologyData := SGC_WPCohomologyData;;
 gap> cohomologyDataCalls := 0;; wpCohomologyDataCalls := 0;;
 gap> cohomologyDataWasReadOnly := IsReadOnlyGlobal("SGC_CohomologyData");; wpCohomologyDataWasReadOnly := IsReadOnlyGlobal("SGC_WPCohomologyData");;
 gap> if cohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_CohomologyData"); fi;; if wpCohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_WPCohomologyData"); fi;;
 gap> SGC_CohomologyData := function(arg) cohomologyDataCalls := cohomologyDataCalls+1; return CallFuncList(originalCohomologyData,arg); end;;
-gap> SGC_WPCohomologyData := function(Context) wpCohomologyDataCalls := wpCohomologyDataCalls+1; return originalWPCohomologyData(Context); end;;
+gap> SGC_WPCohomologyData := function(arg) wpCohomologyDataCalls := wpCohomologyDataCalls+1; return CallFuncList(originalWPCohomologyData,arg); end;;
 gap> GroupCohomologyMod2(ContextApi);;
 Z2[Ax,Ay,Az]/<R2>
 R2:  Ax^2  Ay^2  Az^2

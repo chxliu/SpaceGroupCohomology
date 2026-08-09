@@ -638,25 +638,47 @@ end;
 #####################################################################
 #####################################################################
 
+SGC_DegreeCupFamilies:=function(generatorDimensions,degree)
+local families, prefix, d, candidateOrder;
+families:=[];
+prefix:=0;
+for d in [1..QuoInt(degree,2)] do
+    if d <= Length(generatorDimensions) and IsBound(generatorDimensions[d])
+       and generatorDimensions[d] <> 0 then
+        if degree = 2 then
+            candidateOrder:="offDiagonalThenSquares";
+        elif 2*d = degree then
+            candidateOrder:="unorderedPairs";
+        else
+            candidateOrder:="cartesian";
+        fi;
+        Add(families,rec(
+            factorDegree:=d,
+            sourceDegree:=degree-d,
+            restrictWidth:=prefix,
+            candidateOrder:=candidateOrder
+        ));
+    fi;
+    if d <= Length(generatorDimensions) and IsBound(generatorDimensions[d]) then
+        prefix:=prefix+generatorDimensions[d];
+    fi;
+od;
+return families;
+end;
+
+#####################################################################
+#####################################################################
+
 Mod2RingGensAndRels:=function(arg)
 local
-        R,n,GG,IT,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,GensGAP6,spacedim,GenDimAll,GenDegAll,
-        Gens, GensLett, zeroH, Cupped, CupRelsLett, CupTemp, CupTempLett,
-        CupBase2all,CupBase2,CupBase3,CupBase4,CupBase5,CupBase6,CupBase7,CupBase8,
-        CupBase9,CupBase10,CupBase11,CupBase12,
-        CupBase1Lett, CupBase2Lett,CupBase3Lett,CupBase4Lett,CupBase5Lett,CupBase6Lett,CupBase7Lett,CupBase8Lett,
-        CupBase9Lett,CupBase10Lett,CupBase11Lett,CupBase12Lett,
-        CupRel2Lett, CupRel3Lett, CupRel4Lett, CupRel5Lett, CupRel6Lett, CupRel7Lett, CupRel8Lett,
-        CupRel9Lett, CupRel10Lett, CupRel11Lett, CupRel12Lett,
-        CupRelByDeg, CupStep, RelReducer, SolverCache,
-        cupped,M1,sum,row,BasisImaged2,cuppedRaw,CupBase6RawCobandCoc,CupBase6Raw,
-        Lett1, Lett2, mono, IO,
-        uCocycle, vCocycle, uvCocycle, uChainMap, ww,
-        sol, sol1, solrel, cc, CB,
-        BasisP, BasisQ, SmithRecord, IToPosition,
-        returnData, maxRelationDegree, relations, generatorNames, ringData,
-        #NonNegativeVec,
-        i,j,p,q,r,s,t,u,v,w,x,y,z, ln, ip,iq,ir,is,it,iu,iv,iw,ix,iy,iz,sw;
+        R,n,GG,IT,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,GenByDeg,GenOffset,
+        GensGAP6,spacedim,GenDimAll,GenDegAll,
+        Gens,GensLett,zeroH,CupRelByDeg,SolverCache,CB,
+        IToPosition,NewDegreeState,ProcessCandidate,ProcessCupFamily,
+        ProcessDegree2,FinalizeDegree,DegreeState,
+        state,family,r,i,j,x,row,M1,BasisImaged2,
+        returnData,maxRelationDegree,outputDegree,relations,generatorNames,
+        ringData,mono;
 
 #Arguments: arg[1] = IT (# of space group); arg[2] = spacedim (2 or 3, default 3);
 #           arg[3] = R (resolution); arg[4] = Gens (generators);
@@ -670,2080 +692,379 @@ local
 #e.g.: Mod2RingGensAndRels(89,3,R89);           #(R received, generators recomputed)
 #e.g.: Mod2RingGensAndRels(89,3,R89,Gens);      #standard call from SpaceGroupCohomologyRingGapInterface
 
-
 if Length(arg)=0 or not ((IsInt(arg[1]) and arg[1] >= 1 and arg[1] <= 230)
                          or (arg[1] = fail and Length(arg) >= 7)) then
     Error("Mod2RingGensAndRels: IT must be 1..230\n");
 fi;
 
-returnData := Length(arg) >= 5 and arg[5] = true;
-maxRelationDegree := fail;
+returnData:=Length(arg) >= 5 and arg[5] = true;
+maxRelationDegree:=fail;
 if Length(arg) >= 6 then
-    if not IsInt(arg[6]) or not arg[6] in [6,8,12] then
-        Error("Mod2RingGensAndRels: relation-degree cap must be 6, 8, or 12\n");
+    if not IsInt(arg[6]) or arg[6] < 2 then
+        Error("Mod2RingGensAndRels: relation-degree cap must be an integer at least 2\n");
     fi;
-    maxRelationDegree := arg[6];
+    maxRelationDegree:=arg[6];
 fi;
 
 if Length(arg)=1 then
     spacedim:=3;
 fi;
-
 if Length(arg)>=2 then
     spacedim:=arg[2];
 fi;
 
-IT := arg[1];  #Group number in International Table for Crystallography (ITC)
-#Print("Begin Group No. ", IT, ":\n");
+IT:=arg[1];
 
 if Length(arg)<=2 then
-    GG := SpaceGroupIT(spacedim,IT);
-    #Choose the resolution length (n is re-derived from the resolution below at "n:=Length(Size(R))-1").
-    #This mirrors the policy in SpaceGroupCohomologyRingGapInterface via SGC_MaxRelationDegreeForIT.
-    n := SGC_MaxRelationDegreeForIT(IT);
-    R := SGC_ResolutionSpaceGroup(GG,n+1);                #Construct resolution;
-    Gens:=Mod2RingGenerators(R,4,spacedim);               #Calculate generators
-elif Length(arg) = 3 then                                 #resolution given, generators not
-    R := arg[3];                                          #receive resolution from input;
-    Gens:=Mod2RingGenerators(R,4,spacedim);               #recompute generators from the given resolution;
-else                                                      #Length(arg) >= 4
-    R := arg[3];                                          #receive resolution from input;
-    Gens:=arg[4];                                         #receive generators from input;
+    GG:=SpaceGroupIT(spacedim,IT);
+    n:=SGC_MaxRelationDegreeForIT(IT);
+    R:=SGC_ResolutionSpaceGroup(GG,n+1);
+    Gens:=Mod2RingGenerators(R,4,spacedim);
+elif Length(arg) = 3 then
+    R:=arg[3];
+    Gens:=Mod2RingGenerators(R,4,spacedim);
+else
+    R:=arg[3];
+    Gens:=arg[4];
 fi;
 
-Gen1:=Gens[1];
-Gen2:=Gens[2];
-Gen3:=Gens[3];
-Gen4:=Gens[4];
-Gen5:=[]; #based on the posteriori fact that no space group has degree-5 generators.
-Gen6:=[];
+GenByDeg:=[];
+for r in [1..Maximum(6,Length(Gens))] do
+    if IsBound(Gens[r]) then
+        GenByDeg[r]:=Gens[r];
+    else
+        GenByDeg[r]:=[];
+    fi;
+od;
 
-#Degree-6 ring generators are selected exactly the way Gen4 is: Mod2RingGenerators
-#completes a basis of H^6 from classes outside the decomposable (cup-product) span.
-#CR_Mod2CocyclesAndCoboundaries(R,6) inside needs the degree-7 module, hence the
-#resolution-length guard (Category C resolutions are built to length 13 anyway).
-if Length(Gens) >= 6 and IsBound(Gens[6]) then
-    Gen6 := Gens[6];
-elif (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
-    GensGAP6 := Mod2RingGenerators(R,6,spacedim);
-    Gen6 := GensGAP6[6];
+#A supplied degree-6 slot is authoritative.  Only named degree-6-generator
+#groups without that slot use the compatibility computation.
+if not (Length(Gens) >= 6 and IsBound(Gens[6]))
+   and IT <> fail and (IT in SGC_Degree6GeneratorGroups) = true
+   and Length(Size(R)) >= 7 then
+    GensGAP6:=Mod2RingGenerators(R,6,spacedim);
+    GenByDeg[6]:=GensGAP6[6];
 fi;
 
-GenDimAll:=[Length(Gen1),Length(Gen2),Length(Gen3),Length(Gen4),Length(Gen5),Length(Gen6)];
-GenDegAll:=Concatenation(List([1..Length(Gen1)],x->1),List([1..Length(Gen2)],x->2),List([1..Length(Gen3)],x->3),List([1..Length(Gen4)],x->4),List([1..Length(Gen5)],x->5),List([1..Length(Gen6)],x->6));
+Gen1:=GenByDeg[1];
+Gen2:=GenByDeg[2];
+Gen3:=GenByDeg[3];
+Gen4:=GenByDeg[4];
+Gen5:=GenByDeg[5];
+Gen6:=GenByDeg[6];
+GenDimAll:=List(GenByDeg,Length);
+GenOffset:=[];
+GenOffset[1]:=0;
+for r in [2..Length(GenByDeg)] do
+    GenOffset[r]:=GenOffset[r-1]+GenDimAll[r-1];
+od;
+GenDegAll:=Concatenation(List([1..Length(GenByDeg)],
+    r->List([1..GenDimAll[r]],x->r)));
 
-
-#####################################################################
 IToPosition:=function(v)
 local v0,k;
-
 v0:=[];
 for k in [1..Length(v)] do
     if v[k] = 1 then
-    Append(v0, [ k ]);
+        Add(v0,k);
     fi;
 od;
 return v0;
 end;
-######################################################################
-#local ps,k;
-#
-#end;
-######################################################################
 
-
-GensLett:=CohomologyBasis(List([1..(Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5)+Length(Gen6))],i->1));
-#GensLett records the powers, later to be used to convert generators/relations to letters.
-
+GensLett:=CohomologyBasis(List([1..Sum(GenDimAll)],i->1));
 SolverCache:=SGC_NewSolverCache();
 CupRelByDeg:=[];
+DegreeState:=[];
 
-
-n:=Length(Size(R))-1;     #This is the highest degree at which the relations are calculated for groups No. <= 220.
-                          #for 221, Length(Size(R)) = 6, n = 5, and we will use the "raw code" to calculate relations at degree 6.
+n:=Length(Size(R))-1;
 if maxRelationDegree <> fail then
     if maxRelationDegree > n then
         Error("Mod2RingGensAndRels: resolution only supports relations through degree ",
               n, ", but degree ", maxRelationDegree, " was requested\n");
     fi;
-    n := maxRelationDegree;
+    n:=maxRelationDegree;
 fi;
-if IT = fail and n < 6 then
-    Error("Mod2RingGensAndRels: an untagged resolution must support relations through degree 6\n");
-fi;
-
-
 CB:=[];
-for p in [1..n] do
-CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
+for r in [1..n] do
+    CB[r]:=CR_Mod2CocyclesAndCoboundaries(R,r,true);
 od;
-
-#Cache the all-zero class vector at each degree once. The coboundary test below
-#("is u-cup-v zero in cohomology?") otherwise rebuilds the zero vector.
-#on every cup product. Degrees 1..n are exactly those used (and computable) on every path.
 zeroH:=[];
-for p in [1..n] do
-    zeroH[p]:=List([1..CB[p].Mod2Cohomologydim],x->0);
+for r in [1..n] do
+    zeroH[r]:=List([1..CB[r].Mod2Cohomologydim],x->0);
 od;
 
+NewDegreeState:=function(degree,isRaw)
+return rec(
+    degree:=degree,
+    basis:=[],
+    letters:=[],
+    relations:=[],
+    reducer:=fail,
+    isRaw:=isRaw,
+    boundaries:=[],
+    combined:=[]
+);
+end;
 
-####################### r = 1 ##########################
-
-
-CupBase1Lett:= List([1..Length(Gen1)],x->GensLett[x]);
-
-
-####################### r = 2 ##########################
-
-CupRelsLett := [];
-
-CupBase2 := [];
-CupBase2Lett := [];
-CupRel2Lett := [];
-Cupped := List(Gen1,u->Mod2CupProducts(R,u,Gen1,1,1,CB[1],CB[1],CB[2]));
-
-
-iu :=1;                                           #First step: calculate u-cup-v for u != v
-for u in Gen1 do
-    iv :=1;
-    for v in Gen1 do
-        Lett1 := GensLett[iu]+GensLett[iv];
-        if iv>iu then
-            cupped := Cupped[iu][iv];
-    
-            if cupped = zeroH[2] then   #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel2Lett,[[Lett1]]);
-            else
-                if CupBase2 = [] then             #if no basis yet then push in the genuine cocycle u-cup-v
-                    Append(CupBase2,[cupped]);
-                    Append(CupBase2Lett,[Lett1]);
-                else
-                    sol :=SGC_CachedSolveIn(SolverCache,CupBase2,cupped);
-                    if sol = fail then                        #if u-cup-v is a genuine new cocycle
-                        Append(CupBase2,[cupped]);
-                        Append(CupBase2Lett,[Lett1]);
-                    else                       #if u-cup-v is expressable by other cocycles in basis
-                        solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase2Lett[x]));
-                        if (Lett1 in CupBase2Lett) = false then
-                            Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                            Append(CupRel2Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                        fi;
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-
-
-iu :=1;                                    #Second step: calculate u-cup-u
-for u in Gen1 do
-    Lett1 := GensLett[iu]+GensLett[iu];
-    cupped := Cupped[iu][iu];
-    
-        if cupped = zeroH[2] then   #if u-cup-u is a coboundary
-            Append(CupRelsLett,[Lett1]);
-            Append(CupRel2Lett,[[Lett1]]);
+ProcessCandidate:=function(target,candidate,letter,useReducer)
+local sol,sol1,solrel;
+solrel:=[];
+if target.isRaw then
+    if SGC_CachedSolveIn(SolverCache,target.boundaries,candidate) <> fail then
+        solrel:=[letter];
+    elif target.basis = [] then
+        Add(target.basis,candidate);
+        Add(target.letters,letter);
+        Add(target.combined,candidate);
+    else
+        sol:=SGC_CachedSolveIn(SolverCache,target.combined,candidate);
+        if sol = fail then
+            Add(target.basis,candidate);
+            Add(target.letters,letter);
+            Add(target.combined,candidate);
         else
-            if CupBase2 = [] then             #if no basis yet then push in the genuine cocycle u-cup-u
-                Append(CupBase2,[cupped]);
-                Append(CupBase2Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase2,cupped);
-                if sol = fail then                                  #if u-cup-u is a genuine new cocycle
-                    Append(CupBase2,[cupped]);
-                    Append(CupBase2Lett,[Lett1]);
-                else                              #if u-cup-u is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase2Lett[x]));
-                    if (Lett1 in CupBase2Lett) = false then
-                        Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                        Append(CupRel2Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    fi;
-                fi;
-            fi;
+            sol1:=List([(Length(target.boundaries)+1)..Length(sol)],x->sol[x]);
+            solrel:=Concatenation([letter],
+                List(IToPosition(GF2ToZ(sol1)),x->target.letters[x]));
         fi;
-    iu := iu+1;
-od;
-
-AppendGenuineGens(SolverCache, CupBase2, CupBase2Lett, Gen2, GensLett, Length(Gen1), 2);
-CupRelByDeg[2] := CupRel2Lett;
-
-
-if Length(CupBase2Lett) = CB[2].Mod2Cohomologydim then
-    Print("");#Print("dim(H^2)=", CB[2].Mod2Cohomologydim,", ");
+    fi;
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^2) = ", Length(CupBase2Lett) - CB[2].Mod2Cohomologydim,"\n");
-fi;
-
-##Begin printing the relations at deg 2:
-if Length(CupRel2Lett) > 0 then
-fi;
-##End printing the relations at deg 2.
-
-
-####################### r = 3 ##########################
-
-
-CupBase3 :=[];
-CupBase3Lett :=[];
-CupRel3Lett := [];
-CupTemp := [];
-CupTempLett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,3);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-
-
-#Begins: degree-2 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase2 do
-    Cupped := Mod2CupProducts(R,u,Gen1,2,1,CB[2],CB[1],CB[3]);
-    iv :=1;
-    for v in Gen1 do
-        cupped :=Cupped[iv];      #then calculate u-cup-v
-        Lett1 := CupBase2Lett[iu] + GensLett[iv];
-                
-        ####
-        ####
-
-
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if (cupped = zeroH[3]) then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
+    if candidate = zeroH[target.degree] then
+        solrel:=[letter];
+    elif target.basis = [] then
+        Add(target.basis,candidate);
+        Add(target.letters,letter);
+    else
+        sol:=SGC_CachedSolveIn(SolverCache,target.basis,candidate);
+        if sol = fail then
+            Add(target.basis,candidate);
+            Add(target.letters,letter);
         else
-            if CupBase3 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase3,[cupped]);
-                Append(CupBase3Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase3,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase3,[cupped]);
-                    Append(CupBase3Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase3Lett[x]));
-                fi;
-            fi;
+            solrel:=Concatenation([letter],
+                List(IToPosition(GF2ToZ(sol)),x->target.letters[x]));
         fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-                    
-                    
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase3Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel3Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-        
-        
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Finished: degree-2 cup with degree-1-gen
-
-
-AppendGenuineGens(SolverCache, CupBase3, CupBase3Lett, Gen3, GensLett, Length(Gen1)+Length(Gen2), 3);
-CupRelByDeg[3] := CupRel3Lett;
-
-
-#
-
-
-if Length(CupBase3Lett) = CB[3].Mod2Cohomologydim then
-    Print("");#Print("dim(H^3)=", CB[3].Mod2Cohomologydim,", ");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^3) = ", Length(CupBase3Lett) - CB[3].Mod2Cohomologydim,"\n");
+    fi;
 fi;
-
-
-##Begin printing the relations at deg 3:
-if Length(CupRel3Lett) > 0 then
+if (letter in target.letters) = false then
+    if useReducer = false
+       or target.reducer.addIfIndependent(target.reducer.encode(solrel)) then
+        Add(target.relations,solrel);
+    fi;
 fi;
-##End printing the relations at deg 3.
+end;
 
-
-####################### r = 4 ##########################
-
-CupBase4 :=[];
-CupBase4Lett :=[];
-CupRel4Lett := [];
-CupTemp := [];
-CupTempLett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,4);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+ProcessCupFamily:=function(target,cupFamily)
+local source,factors,factorLetters,sourceIndex,sourceClass,sourceLetter,
+      factorIndices,factorIndex,genuinePosition,products,
+      uCocycle,uChainMap,ww,vCocycle,uvCocycle,w,term,sw,k,
+      letter,useReducer;
+source:=DegreeState[cupFamily.sourceDegree];
+if source.isRaw then
+    Error("Mod2RingGensAndRels: raw degree state cannot feed a higher degree\n");
 fi;
-
-
-#Step-1 begins here: degree-3 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase3 do
-    Cupped := Mod2CupProducts(R,u,Gen1,3,1,CB[3],CB[1],CB[4]);
-    iv :=1;
-    for v in Gen1 do
-        cupped :=Cupped[iv];      #then calculate u-cup-v
-        Lett1 := CupBase3Lett[iu] + GensLett[iv];
-        
-        ####
-        ####
-    
-
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[4] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        elif CupBase4 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-            Append(CupBase4,[cupped]);
-            Append(CupBase4Lett,[Lett1]);
-        else
-            sol :=SGC_CachedSolveIn(SolverCache,CupBase4,cupped);
-            if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                Append(CupBase4,[cupped]);
-                Append(CupBase4Lett,[Lett1]);
-            else                                #if u-cup-v is expressable by other cocycles in basis
-                solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase4Lett[x]));
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase4Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel4Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-        
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-3 cup with degree-1-gen
-
-
-#
-
-
-#Step-2 begins here: degree-2-gen cup with degree-2-gen
-#
-#
-iu :=1;
-for u in Gen2 do
-    iv :=1;
-    for v in Gen2 do
-        if iv>=iu then
-        
-            cupped :=Mod2CupProduct(R,u,v,2,2,CB[2],CB[2],CB[4]);      #then calculate u-cup-v
-        
-            Lett1 := GensLett[Length(Gen1)+iu] + GensLett[Length(Gen1)+iv];
-        
-            if cupped = zeroH[4] then         #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel4Lett,[[Lett1]]);
-            elif CupBase4 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
-                Append(CupBase4,[cupped]);
-                Append(CupBase4Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase4,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase4,[cupped]);
-                    Append(CupBase4Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase4Lett[x]));
-                    if (Lett1 in CupBase4Lett) = false then
-                        Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                        Append(CupRel4Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-2 finished: degree-2-gen cup with degree-2-gen
-
-AppendGenuineGens(SolverCache, CupBase4, CupBase4Lett, Gen4, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3), 4);
-CupRelByDeg[4] := CupRel4Lett;
-
-
-if Length(CupBase4Lett) = CB[4].Mod2Cohomologydim then
-    Print("");#Print("dim(H^4)=", CB[4].Mod2Cohomologydim,", ");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^4) = ", Length(CupBase4Lett) - CB[4].Mod2Cohomologydim,"\n");
-fi;
-
-
-##Begin printing the relations at deg 4:
-if Length(CupRel4Lett) > 0 then
-fi;
-##End printing the relations at deg 4.
-
-
-####################### r = 5 ##########################
-
-CupBase5 :=[];
-CupBase5Lett :=[];
-CupRel5Lett := [];
-CupTemp := [];
-CupTempLett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,5);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-
-
-#Step-1 begins here: degree-4 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase4 do
-
-    #### implementing Mod2CupProduct(R,u,v,4,1,CB[4],CB[1],CB[5]) -- part 1: ####
-    ####
-    uCocycle:=CB[4].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,4,1);
-    ww:=[];
-    for i in [1..(R!.dimension(5))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,4,1,CB[4],CB[1],CB[5])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen1 do
-    
-        
-        #### implementing Mod2CupProduct(R,u,v,4,1,CB[4],CB[1],CB[5]) -- part 2: ####
-        ####
-        vCocycle:=CB[1].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(5))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
+factors:=GenByDeg[cupFamily.factorDegree];
+factorLetters:=GensLett{[
+    GenOffset[cupFamily.factorDegree]+1..
+    GenOffset[cupFamily.factorDegree]+Length(factors)]};
+for sourceIndex in [1..Length(source.basis)] do
+    sourceClass:=source.basis[sourceIndex];
+    sourceLetter:=source.letters[sourceIndex];
+    if cupFamily.restrictWidth = 0
+       or ForAll([1..cupFamily.restrictWidth],k->sourceLetter[k]=0) then
+        if target.isRaw then
+            uCocycle:=CB[cupFamily.sourceDegree].classToCocycle(sourceClass);
+            uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,
+                cupFamily.sourceDegree,cupFamily.factorDegree);
+            ww:=[];
+            for k in [1..R!.dimension(target.degree)] do
+                Add(ww,uChainMap([[k,1]]));
             od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cupped := CB[5].cocycleToClass(uvCocycle);
-        ####
-        #### implementing Mod2CupProduct(R,u,v,4,1,CB[4],CB[1],CB[5]) -- part 2 ended ####
-
-        Lett1 := CupBase4Lett[iu] + GensLett[iv];
-
-
-        ####
-        
-        ####
-
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[5] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        elif CupBase5 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-            Append(CupBase5,[cupped]);
-            Append(CupBase5Lett,[Lett1]);
-        else
-            sol :=SGC_CachedSolveIn(SolverCache,CupBase5,cupped);
-            if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                Append(CupBase5,[cupped]);
-                Append(CupBase5Lett,[Lett1]);
-            else                                #if u-cup-v is expressable by other cocycles in basis
-                solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase5Lett[x]));
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase5Lett) = false then
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel5Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-        
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-4 cup with degree-1-gen
-
-
-#Step-2 begins here: degree-3-gen cup with degree-2-gen
-#
-#
-iu :=1;
-for u in Gen3 do
-
-    #### implementing Mod2CupProduct(R,u,v,3,2,CB[3],CB[2],CB[5]) -- part 1: ####
-    ####
-    uCocycle:=CB[3].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,3,2);
-    ww:=[];
-    for i in [1..(R!.dimension(5))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,3,2,CB[3],CB[2],CB[5])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen2 do
-        
-            
-        #### implementing Mod2CupProduct(R,u,v,3,2,CB[3],CB[2],CB[5]) -- part 2: ####
-        ####
-        vCocycle:=CB[2].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(5))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
+            products:=[];
+            for vCocycle in List(factors,
+                    v->CB[cupFamily.factorDegree].classToCocycle(v)) do
+                uvCocycle:=[];
+                for k in [1..R!.dimension(target.degree)] do
+                    w:=ww[k];
+                    sw:=0;
+                    for term in w do
+                        sw:=sw+vCocycle[AbsoluteValue(term[1])];
+                    od;
+                    uvCocycle[k]:=sw mod 2;
+                od;
+                Add(products,uvCocycle);
             od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cupped := CB[5].cocycleToClass(uvCocycle);
-        ####
-        #### implementing Mod2CupProduct(R,u,v,3,2,CB[3],CB[2],CB[5]) -- part 2 ended ####
-        
-        Lett1 := GensLett[Length(Gen1)+Length(Gen2)+iu] + GensLett[Length(Gen1)+iv];
-                
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[5] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        elif CupBase5 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-            Append(CupBase5,[cupped]);
-            Append(CupBase5Lett,[Lett1]);
         else
-            sol :=SGC_CachedSolveIn(SolverCache,CupBase5,cupped);
-            if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                Append(CupBase5,[cupped]);
-                Append(CupBase5Lett,[Lett1]);
-            else                                #if u-cup-v is expressable by other cocycles in basis
-                solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase5Lett[x]));
-            fi;
+            products:=Mod2CupProducts(R,sourceClass,factors,
+                cupFamily.sourceDegree,cupFamily.factorDegree,
+                CB[cupFamily.sourceDegree],CB[cupFamily.factorDegree],
+                CB[target.degree]);
         fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase5Lett) = false then
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel5Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
+        if cupFamily.candidateOrder = "unorderedPairs" then
+            genuinePosition:=Position(factorLetters,sourceLetter);
+            if genuinePosition = fail then
+                Error("Mod2RingGensAndRels: equal-degree source is not a genuine generator\n");
             fi;
+            factorIndices:=[genuinePosition..Length(factors)];
+        else
+            factorIndices:=[1..Length(factors)];
         fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-        
-        iv := iv+1;
-    od;
-    iu := iu+1;
+        useReducer:=cupFamily.candidateOrder = "cartesian";
+        for factorIndex in factorIndices do
+            letter:=sourceLetter+
+                GensLett[GenOffset[cupFamily.factorDegree]+factorIndex];
+            ProcessCandidate(target,products[factorIndex],letter,useReducer);
+        od;
+    fi;
 od;
-#
-#
-#Step-2 finished: degree-3-gen cup with degree-2-gen
+end;
 
+ProcessDegree2:=function(target)
+local products,sourceIndex,factorIndex,letter;
+products:=List(Gen1,u->Mod2CupProducts(R,u,Gen1,1,1,
+    CB[1],CB[1],CB[2]));
+for sourceIndex in [1..Length(Gen1)] do
+    for factorIndex in [(sourceIndex+1)..Length(Gen1)] do
+        letter:=GensLett[sourceIndex]+GensLett[factorIndex];
+        ProcessCandidate(target,products[sourceIndex][factorIndex],letter,false);
+    od;
+od;
+for sourceIndex in [1..Length(Gen1)] do
+    letter:=GensLett[sourceIndex]+GensLett[sourceIndex];
+    ProcessCandidate(target,products[sourceIndex][sourceIndex],letter,false);
+od;
+end;
 
-AppendGenuineGens(SolverCache, CupBase5, CupBase5Lett, Gen5, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4), 5);
-CupRelByDeg[5] := CupRel5Lett;
-
-
-#
-
-
-if Length(CupBase5Lett) = CB[5].Mod2Cohomologydim then
-    Print("");#Print("dim(H^5)=", CB[5].Mod2Cohomologydim,", ");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^5) = ", Length(CupBase5Lett) - CB[5].Mod2Cohomologydim,"\n");
+FinalizeDegree:=function(target)
+if target.isRaw = false and target.degree <= Length(GenByDeg) then
+    AppendGenuineGens(SolverCache,target.basis,target.letters,
+        GenByDeg[target.degree],GensLett,GenOffset[target.degree],
+        target.degree);
 fi;
-
-
-##Begin printing the relations at deg 5:
-if Length(CupRel5Lett) >0 then
+if target.isRaw = false
+   and Length(target.letters) <> CB[target.degree].Mod2Cohomologydim then
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^",
+          target.degree,") = ",
+          Length(target.letters)-CB[target.degree].Mod2Cohomologydim,"\n");
 fi;
-##End printing the relations at deg 5.
+CupRelByDeg[target.degree]:=target.relations;
+end;
 
+state:=NewDegreeState(1,false);
+state.basis:=ShallowCopy(Gen1);
+state.letters:=List([1..Length(Gen1)],x->GensLett[x]);
+DegreeState[1]:=state;
 
-####################### r = 6 ##########################
+for r in [2..n] do
+    state:=NewDegreeState(r,false);
+    DegreeState[r]:=state;
+    if r >= 3 then
+        state.reducer:=SGC_NewRelationReducer(
+            GensLett,GenDegAll,CupRelByDeg,r);
+        if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+            ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(
+                degree:=state.reducer.degree,
+                relationProductCount:=state.reducer.relationProductCount,
+                rank:=state.reducer.rank
+            ));
+        fi;
+    fi;
+    if r = 2 then
+        ProcessDegree2(state);
+    else
+        for family in SGC_DegreeCupFamilies(GenDimAll,r) do
+            ProcessCupFamily(state,family);
+        od;
+    fi;
+    FinalizeDegree(state);
+od;
 
-CupBase6 :=[];
-CupBase6Lett :=[];
-CupRel6Lett := [];
-CupTemp := [];
-CupTempLett := [];
-M1:=[];
-CupBase6Raw:=[];
-
-#Below starts the "Raw Method" for the degree 6 relations for groups 221-230, part1
-#
-if n = 5 then
-
-    #M1 is Dim(R6) x Dim(R5);
-
+outputDegree:=n;
+#A length-6 resolution (n=5) has a degree-6 boundary but no degree-7
+#boundary.  Preserve its terminal raw-cocycle relation search.
+if IT <> fail and n = 5 and maxRelationDegree = fail then
+    state:=NewDegreeState(6,true);
+    DegreeState[6]:=state;
+    M1:=[];
     for i in [1..R!.dimension(6)] do
         row:=List([1..R!.dimension(5)],j->0);
-        for x in R!.boundary(6,i) do          #scatter the sparse boundary directly into its target column
+        for x in R!.boundary(6,i) do
             j:=AbsoluteValue(x[1]);
-            row[j]:= row[j] + SignInt(x[1]);
+            row[j]:=row[j]+SignInt(x[1]);
         od;
         for j in [1..R!.dimension(5)] do
-            row[j]:= RemInt(row[j],2);
+            row[j]:=RemInt(row[j],2);
         od;
-    M1[i]:=row;
+        M1[i]:=row;
     od;
-    
-    if M1 = [ ] then
+    if M1 = [] then
         BasisImaged2:=[];
     else
         BasisImaged2:=BaseMat(TransposedMat(M1)*Z(2));
     fi;
-
-    CupBase6RawCobandCoc:=[];
-    for i in [1..Length(BasisImaged2)] do
-        Append(CupBase6RawCobandCoc,[BasisImaged2[i]]);
-    od;
-
-fi;
-
-#
-#Above ends the "Raw Method" for the degree 6 relations for groups 221-230, part1
-
-
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,6);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-
-
-# Below is the good method when resolution at degree 7 has been constructed:
-#
-#
-#
-if n >= 6 then
-
-#Step-1 begins here: degree-5 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase5 do
-
-    #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 1: ####
-    ####
-    uCocycle:=CB[5].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,5,1);
-    ww:=[];
-    for i in [1..(R!.dimension(6))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen1 do
-    
-    
-        #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 2: ####
-        ####
-        vCocycle:=CB[1].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(6))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
-            od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cupped := CB[6].cocycleToClass(uvCocycle);
-        ####
-        #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 2 ended ####
-
-        Lett1 := CupBase5Lett[iu] + GensLett[iv];
-
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[6] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-            Append(CupBase6,[cupped]);
-            Append(CupBase6Lett,[Lett1]);
-        else
-            sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
-            if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                Append(CupBase6,[cupped]);
-                Append(CupBase6Lett,[Lett1]);
-            else                                #if u-cup-v is expressable by other cocycles in basis
-                solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase6Lett[x]));
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase6Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel6Lett,[solrel]);
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-
-    
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-5 cup with degree-1-gen
-
-
-#Step-2 begins here: (degree-2 cup with degree-2) cup with degree-2-gen, or degree-4 cup with degree-2-gen
-#
-#
-iu :=1;
-for u in CupBase4 do
-    if List([1..Length(Gen1)],x->CupBase4Lett[iu][x]) = List([1..Length(Gen1)],x->0) then   #if u is of the form Bi-cup-Bj or D
-        #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 1: ####
-        ####
-        uCocycle:=CB[4].classToCocycle(u);
-        uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,4,2);
-        ww:=[];
-        for i in [1..(R!.dimension(6))] do
-            Append(ww, [uChainMap([[i,1]])]);
-        od;
-        ####
-        #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6])  -- part 1 ended ####
-
-        iv :=1;
-        for v in Gen2 do
-    
-        
-            #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 2: ####
-            ####
-            vCocycle:=CB[2].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(6))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[6].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 2 ended ####
-        
-
-            Lett1 := CupBase4Lett[iu] + GensLett[Length(Gen1)+iv];
-
-        
-            #### Start: determine whether u-cup-v goes to the basis
-            ####
-            solrel := [];
-            if cupped = zeroH[6] then         #if u-cup-v is a coboundary
-                solrel := [Lett1];
-              
-            elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase6,[cupped]);
-                Append(CupBase6Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase6,[cupped]);
-                    Append(CupBase6Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase6Lett[x]));
-                fi;
-            fi;
-            ####
-            #### End:  determine whether u-cup-v goes to the basis
-            
-            
-            #### Start: determine whether u-cup-v gives a new relation
-            ####
-            if (Lett1 in CupBase6Lett) = false then
-               
-                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                    Append(CupRelsLett,[Lett1]);
-                    Append(CupRel6Lett,[solrel]);
-                fi;
-            fi;
-            ####
-            #### End: determine whether u-cup-v gives a new relation
-        
-            iv := iv+1;
-        od;
+    state.boundaries:=BasisImaged2;
+    state.combined:=ShallowCopy(state.boundaries);
+    state.reducer:=SGC_NewRelationReducer(
+        GensLett,GenDegAll,CupRelByDeg,6);
+    if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+        ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(
+            degree:=state.reducer.degree,
+            relationProductCount:=state.reducer.relationProductCount,
+            rank:=state.reducer.rank
+        ));
     fi;
-    iu := iu+1;
-od;
-#
-#
-#Step-2 finished: (degree-2 cup with degree-2) cup with degree-2-gen, or degree-4 cup with degree-2-gen
-
-
-#Step-3 begins here: degree-3-gen cup with degree-3-gen
-#
-#
-iu :=1;
-for u in Gen3 do
-
-    #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 1: ####
-    ####
-    uCocycle:=CB[3].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,3,3);
-    ww:=[];
-    for i in [1..(R!.dimension(6))] do
-        Append(ww, [uChainMap([[i,1]])]);
+    for family in SGC_DegreeCupFamilies(GenDimAll,6) do
+        ProcessCupFamily(state,family);
     od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen3 do
-        if iv>=iu then
-            Lett1 := GensLett[Length(Gen1)+Length(Gen2)+iu] + GensLett[Length(Gen1)+Length(Gen2)+iv];
-            #Of course now u-cup-v does not contain patterns in CupRelsLett:
-        
-            
-            #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 2: ####
-            ####
-            vCocycle:=CB[3].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(6))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[6].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 2 ended ####
-        
-            if cupped = zeroH[6] then         #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel6Lett,[[Lett1]]);
-            elif CupBase6 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
-                Append(CupBase6,[cupped]);
-                Append(CupBase6Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase6,[cupped]);
-                    Append(CupBase6Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase6Lett[x]));
-                    if (Lett1 in CupBase6Lett) = false then
-                        Append(CupRelsLett,[Lett1]);
-                        Append(CupRel6Lett,[solrel]);
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-3 finished: degree-3-gen cup with degree-3-gen
-
-
-AppendGenuineGens(SolverCache, CupBase6, CupBase6Lett, Gen6, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5), 6);
-
-
-if Length(CupBase6) = CB[6].Mod2Cohomologydim then
-    Print("");#Print("dim(H^6)=", CB[6].Mod2Cohomologydim,".\n");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^6) = ", Length(CupBase6) - CB[6].Mod2Cohomologydim,"\n");
+    FinalizeDegree(state);
+    outputDegree:=6;
 fi;
 
-###########################
-###########################
-###########################
-else    ##Below starts the "Raw Method" for the degree 6 relations for groups 221-230, part2
-###########################
-###########################
-###########################
-
-#Step-1 begins here: degree-5 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase5 do
-
-    #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 1: ####
-    ####
-    uCocycle:=CB[5].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,5,1);
-    ww:=[];
-    for i in [1..(R!.dimension(6))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen1 do
-    
-    
-        #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 2: ####
-        ####
-        vCocycle:=CB[1].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(6))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
-            od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cuppedRaw := uvCocycle;
-        ####
-        #### implementing Mod2CupProduct(R,u,v,5,1,CB[5],CB[1],CB[6]) -- part 2 ended ####
-
-        Lett1 := CupBase5Lett[iu] + GensLett[iv];
-
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-            Append(CupBase6Raw,[cuppedRaw]);
-            Append(CupBase6Lett,[Lett1]);
-            Append(CupBase6RawCobandCoc,[cuppedRaw]);
-        else
-            sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
-            if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                Append(CupBase6Raw,[cuppedRaw]);
-                Append(CupBase6Lett,[Lett1]);
-                Append(CupBase6RawCobandCoc,[cuppedRaw]);
-            else                                #if u-cup-v is expressable by other cocycles in basis
-                sol1:=List([(Length(BasisImaged2)+1)..Length(sol)],x->sol[x]);
-                solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol1)),x->CupBase6Lett[x]));
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase6Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel6Lett,[solrel]);
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-
-    
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-5 cup with degree-1-gen
-
-
-#Step-2 begins here: (degree-2 cup with degree-2) cup with degree-2-gen, or degree-4 cup with degree-2-gen
-#
-#
-iu :=1;
-for u in CupBase4 do
-    if List([1..Length(Gen1)],x->CupBase4Lett[iu][x]) = List([1..Length(Gen1)],x->0) then   #if u is of the form Bi-cup-Bj or D
-        #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 1: ####
-        ####
-        uCocycle:=CB[4].classToCocycle(u);
-        uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,4,2);
-        ww:=[];
-        for i in [1..(R!.dimension(6))] do
-            Append(ww, [uChainMap([[i,1]])]);
-        od;
-        ####
-        #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6])  -- part 1 ended ####
-
-        iv :=1;
-        for v in Gen2 do
-    
-        
-            #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 2: ####
-            ####
-            vCocycle:=CB[2].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(6))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cuppedRaw := uvCocycle;
-            ####
-            #### implementing Mod2CupProduct(R,u,v,4,2,CB[4],CB[2],CB[6]) -- part 2 ended ####
-        
-
-            Lett1 := CupBase4Lett[iu] + GensLett[Length(Gen1)+iv];
-
-        
-            #### Start: determine whether u-cup-v goes to the basis
-            ####
-            solrel := [];
-            if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
-                solrel := [Lett1];
-            
-            elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase6Raw,[cuppedRaw]);
-                Append(CupBase6Lett,[Lett1]);
-                Append(CupBase6RawCobandCoc,[cuppedRaw]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase6Raw,[cuppedRaw]);
-                    Append(CupBase6Lett,[Lett1]);
-                    Append(CupBase6RawCobandCoc,[cuppedRaw]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    sol1:=List([(Length(BasisImaged2)+1)..(Length(sol))],x->sol[x]);
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol1)),x->CupBase6Lett[x]));
-                fi;
-            fi;
-            ####
-            #### End:  determine whether u-cup-v goes to the basis
-            
-            
-            #### Start: determine whether u-cup-v gives a new relation
-            ####
-            if (Lett1 in CupBase6Lett) = false then
-               
-                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                    Append(CupRelsLett,[Lett1]);
-                    Append(CupRel6Lett,[solrel]);
-                fi;
-            fi;
-            ####
-            #### End: determine whether u-cup-v gives a new relation
-        
-            iv := iv+1;
-        od;
-    fi;
-    iu := iu+1;
-od;
-#
-#
-#Step-2 finished: (degree-2 cup with degree-2) cup with degree-2-gen, or degree-4 cup with degree-2-gen
-
-
-#Step-3 begins here: degree-3-gen cup with degree-3-gen
-#
-#
-iu :=1;
-for u in Gen3 do
-
-    #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 1: ####
-    ####
-    uCocycle:=CB[3].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,3,3);
-    ww:=[];
-    for i in [1..(R!.dimension(6))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen3 do
-        if iv>=iu then
-            Lett1 := GensLett[Length(Gen1)+Length(Gen2)+iu] + GensLett[Length(Gen1)+Length(Gen2)+iv];
-            #Of course now u-cup-v does not contain patterns in CupRelsLett:
-        
-            
-            #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 2: ####
-            ####
-            vCocycle:=CB[3].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(6))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cuppedRaw := uvCocycle;
-            ####
-            #### implementing Mod2CupProduct(R,u,v,3,3,CB[3],CB[3],CB[6]) -- part 2 ended ####
-            
-            #### Start:  determine whether u-cup-v goes to the basis
-            ####
-            if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel6Lett,[[Lett1]]);
-            
-            elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase6Raw,[cuppedRaw]);
-                Append(CupBase6Lett,[Lett1]);
-                Append(CupBase6RawCobandCoc,[cuppedRaw]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase6Raw,[cuppedRaw]);
-                    Append(CupBase6Lett,[Lett1]);
-                    Append(CupBase6RawCobandCoc,[cuppedRaw]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    sol1:=List([(Length(BasisImaged2)+1)..(Length(sol))],x->sol[x]);
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol1)),x->CupBase6Lett[x]));
-                    if (Lett1 in CupBase6Lett) = false then
-                        Append(CupRelsLett,[Lett1]);
-                        Append(CupRel6Lett,[solrel]);
-                    fi;
-                fi;
-            fi;
-            ####
-            #### End:  determine whether u-cup-v goes to the basis
-            
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-3 finished: degree-3-gen cup with degree-3-gen
-
-fi;
-#
-#
-#
-#         ##Above ends the "Raw Method" for the degree 6 relations for groups 221-230, part2
-
-CupRelByDeg[6] := CupRel6Lett;
-
-##Begin printing the relations at deg 6:
-if Length(CupRel6Lett) >0 then
-fi;
-##End printing the relations at deg 6.
-
-####################################################################################
-#The part of the code below only runs when relations at r=7 and r=8 are needed, which requires resolution at degree 9 constructed:
-#
-#
-#
-#The "if" below is the one that starts working on the r=7 and r=8 relations, which is executed only when Gen4 is non-empty!
-
-if n >= 8 then
-
-####################### r = 7 ##########################
-
-CupBase7 :=[];
-CupBase7Lett :=[];
-CupRel7Lett := [];
-CupTemp := [];
-CupTempLett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,7);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-
-
-#Step-1 begins here: degree-6 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase6 do
-
-    #### implementing Mod2CupProduct(R,u,v,6,1,CB[6],CB[1],CB[7]) -- part 1: ####
-    ####
-    uCocycle:=CB[6].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,6,1);
-    ww:=[];
-    for i in [1..(R!.dimension(7))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,6,1,CB[6],CB[1],CB[7])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen1 do
-    
-        
-        #### implementing Mod2CupProduct(R,u,v,6,1,CB[6],CB[1],CB[7]) -- part 2: ####
-        ####
-        vCocycle:=CB[1].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(7))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
-            od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cupped := CB[7].cocycleToClass(uvCocycle);
-        ####
-        #### implementing Mod2CupProduct(R,u,v,6,1,CB[6],CB[1],CB[7]) -- part 2 ended ####
-
-        Lett1 := CupBase6Lett[iu] + GensLett[iv];
-
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[7] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        else
-            if CupBase7 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase7,[cupped]);
-                Append(CupBase7Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase7,[cupped]);
-                    Append(CupBase7Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase7Lett[x]));
-                fi;
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase7Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel7Lett,[solrel]);
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-
-    
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-6 cup with degree-1-gen
-
-
-#Step-2 begins here: (degree-3 cup with degree-2) cup with degree-2-gen
-#
-#
-iu :=1;
-for u in CupBase5 do
-    if List([1..Length(Gen1)],x->CupBase5Lett[iu][x]) = List([1..Length(Gen1)],x->0) then   #if u is of the form Bi-cup-Cj
-        #### implementing Mod2CupProduct(R,u,v,5,2,CB[5],CB[2],CB[7]) -- part 1: ####
-        ####
-        uCocycle:=CB[5].classToCocycle(u);
-        uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,5,2);
-        ww:=[];
-        for i in [1..(R!.dimension(7))] do
-            Append(ww, [uChainMap([[i,1]])]);
-        od;
-        ####
-        #### implementing Mod2CupProduct(R,u,v,5,2,CB[5],CB[2],CB[7])  -- part 1 ended ####
-
-        iv :=1;
-        for v in Gen2 do
-    
-        
-            #### implementing Mod2CupProduct(R,u,v,5,2,CB[5],CB[2],CB[7]) -- part 2: ####
-            ####
-            vCocycle:=CB[2].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(7))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[7].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,5,2,CB[5],CB[2],CB[7]) -- part 2 ended ####
-        
-
-            Lett1 := CupBase5Lett[iu] + GensLett[Length(Gen1)+iv];
-
-        
-            #### Start: determine whether u-cup-v goes to the basis
-            ####
-            solrel := [];
-            if cupped = zeroH[7] then         #if u-cup-v is a coboundary
-                solrel := [Lett1];
-              
-            else
-                if CupBase7 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                    Append(CupBase7,[cupped]);
-                    Append(CupBase7Lett,[Lett1]);
-                else
-                    sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
-                    if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                        Append(CupBase7,[cupped]);
-                        Append(CupBase7Lett,[Lett1]);
-                    else                                #if u-cup-v is expressable by other cocycles in basis
-                        solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase7Lett[x]));
-                    fi;
-                fi;
-            fi;
-            ####
-            #### End:  determine whether u-cup-v goes to the basis
-            
-            
-            #### Start: determine whether u-cup-v gives a new relation
-            ####
-            if (Lett1 in CupBase7Lett) = false then
-               
-                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                    Append(CupRelsLett,[Lett1]);
-                    Append(CupRel7Lett,[solrel]);
-                fi;
-            fi;
-            ####
-            #### End: determine whether u-cup-v gives a new relation
-        
-            iv := iv+1;
-        od;
-    fi;
-    iu := iu+1;
-od;
-#
-#
-#Step-2 finished: (degree-3 cup with degree-2) cup with degree-2-gen
-
-
-#Step-3 begins here: degree-4-gen cup with degree-3-gen
-#
-#
-iu :=1;
-for u in Gen4 do
-
-    #### implementing Mod2CupProduct(R,u,v,4,3,CB[4],CB[3],CB[7]) -- part 1: ####
-    ####
-    uCocycle:=CB[4].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,4,3);
-    ww:=[];
-    for i in [1..(R!.dimension(7))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,4,3,CB[4],CB[3],CB[7])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen3 do
-        if iv>=iu then
-            Lett1 := GensLett[Length(Gen1)+Length(Gen2)+Length(Gen3)+iu] + GensLett[Length(Gen1)+Length(Gen2)+iv];
-            #Of course now u-cup-v does not contain patterns in CupRelsLett:
-        
-            
-            #### implementing Mod2CupProduct(R,u,v,4,3,CB[4],CB[3],CB[7]) -- part 2: ####
-            ####
-            vCocycle:=CB[3].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(7))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[7].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,4,3,CB[4],CB[3],CB[7]) -- part 2 ended ####
-        
-            if cupped = zeroH[7] then         #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel7Lett,[[Lett1]]);
-            elif CupBase7 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
-                Append(CupBase7,[cupped]);
-                Append(CupBase7Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase7,[cupped]);
-                    Append(CupBase7Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase7Lett[x]));
-                    if (Lett1 in CupBase7Lett) = false then
-                        Append(CupRelsLett,[Lett1]);
-                        Append(CupRel7Lett,[solrel]);
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-3 finished: degree-4-gen cup with degree-3-gen
-
-#Note that there's no Gen7!!
-
-
-if Length(CupBase7) = CB[7].Mod2Cohomologydim then
-    Print("");#Print("dim(H^7)=", CB[7].Mod2Cohomologydim,".\n");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^7) = ", Length(CupBase7) - CB[7].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[7] := CupRel7Lett;
-
-
-####################### r = 8 ##########################
-
-CupBase8 :=[];
-CupBase8Lett :=[];
-CupRel8Lett := [];
-CupTemp := [];
-CupTempLett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,8);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-
-
-#Step-1 begins here: degree-7 cup with degree-1-gen
-#
-#
-iu :=1;
-for u in CupBase7 do
-
-    #### implementing Mod2CupProduct(R,u,v,7,1,CB[7],CB[1],CB[8]) -- part 1: ####
-    ####
-    uCocycle:=CB[7].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,7,1);
-    ww:=[];
-    for i in [1..(R!.dimension(8))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,7,1,CB[7],CB[1],CB[8])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen1 do
-    
-        
-        #### implementing Mod2CupProduct(R,u,v,7,1,CB[7],CB[1],CB[8]) -- part 2: ####
-        ####
-        vCocycle:=CB[1].classToCocycle(v);
-        uvCocycle:=[];
-        for i in [1..(R!.dimension(8))] do
-            w:=ww[i];
-            sw:=0;
-            for x in w do
-                sw:=sw + vCocycle[AbsoluteValue(x[1])];
-            od;
-            uvCocycle[i]:=sw mod 2;
-        od;
-        cupped := CB[8].cocycleToClass(uvCocycle);
-        ####
-        #### implementing Mod2CupProduct(R,u,v,7,1,CB[7],CB[1],CB[8]) -- part 2 ended ####
-
-        Lett1 := CupBase7Lett[iu] + GensLett[iv];
-
-        
-        #### Start: determine whether u-cup-v goes to the basis
-        ####
-        solrel := [];
-        if cupped = zeroH[8] then         #if u-cup-v is a coboundary
-            solrel := [Lett1];
-            
-        else
-            if CupBase8 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                Append(CupBase8,[cupped]);
-                Append(CupBase8Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase8,[cupped]);
-                    Append(CupBase8Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase8Lett[x]));
-                fi;
-            fi;
-        fi;
-        ####
-        #### End:  determine whether u-cup-v goes to the basis
-            
-            
-        #### Start: determine whether u-cup-v gives a new relation
-        ####
-        if (Lett1 in CupBase8Lett) = false then
-                    
-            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel8Lett,[solrel]);
-            fi;
-        fi;
-        ####
-        #### End: determine whether u-cup-v gives a new relation
-
-    
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-1 finished: degree-7 cup with degree-1-gen
-
-
-#Step-2 begins here: (degree-3 cup with degree-3, or degree-2 cup with degree-2 cup with degree-2) cup with degree-2-gen
-#
-#
-iu :=1;
-for u in CupBase6 do
-    if List([1..Length(Gen1)],x->CupBase6Lett[iu][x]) = List([1..Length(Gen1)],x->0) then   #if u is of the form Ci-cup-Cj or Bi-cup-Bj-cup-Bk
-        #### implementing Mod2CupProduct(R,u,v,6,2,CB[6],CB[2],CB[8]) -- part 1: ####
-        ####
-        uCocycle:=CB[6].classToCocycle(u);
-        uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,6,2);
-        ww:=[];
-        for i in [1..(R!.dimension(8))] do
-            Append(ww, [uChainMap([[i,1]])]);
-        od;
-        ####
-        #### implementing Mod2CupProduct(R,u,v,6,2,CB[6],CB[2],CB[8])  -- part 1 ended ####
-
-        iv :=1;
-        for v in Gen2 do
-    
-        
-            #### implementing Mod2CupProduct(R,u,v,6,2,CB[6],CB[2],CB[8]) -- part 2: ####
-            ####
-            vCocycle:=CB[2].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(8))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[8].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,6,2,CB[6],CB[2],CB[8]) -- part 2 ended ####
-        
-
-            Lett1 := CupBase6Lett[iu] + GensLett[Length(Gen1)+iv];
-
-        
-            #### Start: determine whether u-cup-v goes to the basis
-            ####
-            solrel := [];
-            if cupped = zeroH[8] then         #if u-cup-v is a coboundary
-                solrel := [Lett1];
-              
-            else
-                if CupBase8 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                    Append(CupBase8,[cupped]);
-                    Append(CupBase8Lett,[Lett1]);
-                else
-                    sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
-                    if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                        Append(CupBase8,[cupped]);
-                        Append(CupBase8Lett,[Lett1]);
-                    else                                #if u-cup-v is expressable by other cocycles in basis
-                        solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase8Lett[x]));
-                    fi;
-                fi;
-            fi;
-            ####
-            #### End:  determine whether u-cup-v goes to the basis
-            
-            
-            #### Start: determine whether u-cup-v gives a new relation
-            ####
-            if (Lett1 in CupBase8Lett) = false then
-               
-                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                    Append(CupRelsLett,[Lett1]);
-                    Append(CupRel8Lett,[solrel]);
-                fi;
-            fi;
-            ####
-            #### End: determine whether u-cup-v gives a new relation
-        
-            iv := iv+1;
-        od;
-    fi;
-    iu := iu+1;
-od;
-#
-#
-#Step-2 finished: (degree-3 cup with degree-3, degree-2 cup with degree-2 cup with degree-2) cup with degree-2-gen
-
-
-#Step-3 begins here: degree-4-gen cup with degree-4-gen
-#
-#
-iu :=1;
-for u in Gen4 do
-
-    #### implementing Mod2CupProduct(R,u,v,4,4,CB[4],CB[4],CB[8]) -- part 1: ####
-    ####
-    uCocycle:=CB[4].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,4,4);
-    ww:=[];
-    for i in [1..(R!.dimension(8))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,4,4,CB[4],CB[4],CB[8])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen4 do
-        if iv>=iu then
-            Lett1 := GensLett[Length(Gen1)+Length(Gen2)+Length(Gen3)+iu] + GensLett[Length(Gen1)+Length(Gen2)+Length(Gen3)+iv];
-            #Of course now u-cup-v does not contain patterns in CupRelsLett:
-        
-            
-            #### implementing Mod2CupProduct(R,u,v,4,4,CB[4],CB[4],CB[8]) -- part 2: ####
-            ####
-            vCocycle:=CB[4].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(8))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[8].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,4,4,CB[4],CB[4],CB[8]) -- part 2 ended ####
-        
-            if cupped = zeroH[8] then         #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel8Lett,[[Lett1]]);
-            elif CupBase8 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
-                Append(CupBase8,[cupped]);
-                Append(CupBase8Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase8,[cupped]);
-                    Append(CupBase8Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase8Lett[x]));
-                    if (Lett1 in CupBase8Lett) = false then
-                        Append(CupRelsLett,[Lett1]);
-                        Append(CupRel8Lett,[solrel]);
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step-3 finished: degree-4-gen cup with degree-4-gen
-
-#Note that there's no Gen8!!
-
-
-if Length(CupBase8) = CB[8].Mod2Cohomologydim then
-    Print("");#Print("dim(H^8)=", CB[8].Mod2Cohomologydim,".\n");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^8) = ", Length(CupBase8) - CB[8].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[8] := CupRel8Lett;
-
-
-fi;
-#the above "fi;" is the one that ends working on the r=7 and r=8 relations, which is executed
-#whenever the resolution has length >= 9 (degree-4 and degree-6 generator groups).
-#
-#
-#####################################################################################
-#
-#Relations at degree 9..12 exist only for the degree-6 generator groups
-#(SGC_Degree6GeneratorGroups = [219, 226, 228]), whose resolutions are built to
-#length 13; every other group never reaches this block. For these groups
-#Gen4 = Gen5 = [], so of the generator degrees {1,2,3,6} each degree-r monomial
-#is reached by peeling off its lowest-degree generator factor: Step 1 cups
-#CupBase(r-1) with Gen1, Step 2 cups CupBase(r-2) without Gen1 factors with
-#Gen2, Step 3 cups CupBase(r-3) without Gen1/Gen2 factors with Gen3, and the
-#only monomial with Gen6 factors alone is Gen6*Gen6 at r=12 (Step 4). A Step-3
-#source basis restricted to Gen3/Gen6 factors is non-empty only when its degree
-#r-3 is a multiple of 3, i.e. only at r=9 and r=12; r=10 and r=11 have no Step 3.
-#The per-step logic reproduces the r=7/r=8 Steps verbatim, parameterized by
-#degrees and offsets instead of hand-copied per degree split.
-
-if n >= 12 then
-
-#One relation-search Step (the r=7/r=8 Step-1/2/3 pattern, parameterized):
-#cup every element of CupBaseA (degree dega, restricted so its first
-#restrictWidth letter components vanish; restrictWidth 0 means unrestricted)
-#with every generator in GenB (degree degb, letters at GensLett[offB+..]),
-#extend CupBaseR/CupBaseRLett (degree degr = dega+degb) with genuinely new
-#classes, and record relations that are not reducible from lower degrees.
-CupStep := function(CupBaseA, CupBaseALett, dega, GenB, offB, degb, restrictWidth, CupBaseR, CupBaseRLett, CupRelRLett, degr)
-local iu, iv, i, u, v, w, x, sw, uCocycle, uChainMap, ww, vCocycle, uvCocycle,
-      cupped, Lett1, solrel, sol;
-iu := 1;
-for u in CupBaseA do
-    if restrictWidth = 0 or List([1..restrictWidth],x->CupBaseALett[iu][x]) = List([1..restrictWidth],x->0) then
-
-        #### implementing Mod2CupProduct(R,u,v,dega,degb,CB[dega],CB[degb],CB[degr]) -- part 1: ####
-        uCocycle:=CB[dega].classToCocycle(u);
-        uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,dega,degb);
-        ww:=[];
-        for i in [1..(R!.dimension(degr))] do
-            Append(ww, [uChainMap([[i,1]])]);
-        od;
-
-        iv := 1;
-        for v in GenB do
-
-            #### implementing Mod2CupProduct -- part 2: ####
-            vCocycle:=CB[degb].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(degr))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[degr].cocycleToClass(uvCocycle);
-
-            Lett1 := CupBaseALett[iu] + GensLett[offB+iv];
-
-            #### Start: determine whether u-cup-v goes to the basis
-            solrel := [];
-            if cupped = zeroH[degr] then         #if u-cup-v is a coboundary
-                solrel := [Lett1];
-            else
-                if CupBaseR = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
-                    Append(CupBaseR,[cupped]);
-                    Append(CupBaseRLett,[Lett1]);
-                else
-                    sol :=SGC_CachedSolveIn(SolverCache,CupBaseR,cupped);
-                    if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                        Append(CupBaseR,[cupped]);
-                        Append(CupBaseRLett,[Lett1]);
-                    else                                #if u-cup-v is expressable by other cocycles in basis
-                        solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBaseRLett[x]));
-                    fi;
-                fi;
-            fi;
-            #### End:  determine whether u-cup-v goes to the basis
-
-            #### Start: determine whether u-cup-v gives a new relation
-            if (Lett1 in CupBaseRLett) = false then
-                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
-                    Append(CupRelsLett,[Lett1]);
-                    Append(CupRelRLett,[solrel]);
-                fi;
-            fi;
-            #### End: determine whether u-cup-v gives a new relation
-
-            iv := iv+1;
-        od;
-    fi;
-    iu := iu+1;
-od;
-end;
-
-####################### r = 9 ##########################
-
-CupBase9 :=[];
-CupBase9Lett :=[];
-CupRel9Lett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,9);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-#Step 1: degree-8 basis cup with degree-1 generators
-CupStep(CupBase8, CupBase8Lett, 8, Gen1, 0, 1, 0, CupBase9, CupBase9Lett, CupRel9Lett, 9);
-#Step 2: degree-7 basis without Gen1 factors cup with degree-2 generators
-CupStep(CupBase7, CupBase7Lett, 7, Gen2, Length(Gen1), 2, Length(Gen1), CupBase9, CupBase9Lett, CupRel9Lett, 9);
-#Step 3: degree-6 basis without Gen1/Gen2 factors (raw Gen6 and Gen3*Gen3 monomials) cup with degree-3 generators
-CupStep(CupBase6, CupBase6Lett, 6, Gen3, Length(Gen1)+Length(Gen2), 3, Length(Gen1)+Length(Gen2), CupBase9, CupBase9Lett, CupRel9Lett, 9);
-
-#Note that there's no Gen9!!
-
-if Length(CupBase9) = CB[9].Mod2Cohomologydim then
-    Print("");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^9) = ", Length(CupBase9) - CB[9].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[9] := CupRel9Lett;
-
-####################### r = 10 #########################
-
-CupBase10 :=[];
-CupBase10Lett :=[];
-CupRel10Lett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,10);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-#Step 1: degree-9 basis cup with degree-1 generators
-CupStep(CupBase9, CupBase9Lett, 9, Gen1, 0, 1, 0, CupBase10, CupBase10Lett, CupRel10Lett, 10);
-#Step 2: degree-8 basis without Gen1 factors cup with degree-2 generators
-CupStep(CupBase8, CupBase8Lett, 8, Gen2, Length(Gen1), 2, Length(Gen1), CupBase10, CupBase10Lett, CupRel10Lett, 10);
-#No Step 3: degree 7 is not a multiple of 3, so no Gen3/Gen6-only monomial has degree 7.
-
-if Length(CupBase10) = CB[10].Mod2Cohomologydim then
-    Print("");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^10) = ", Length(CupBase10) - CB[10].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[10] := CupRel10Lett;
-
-####################### r = 11 #########################
-
-CupBase11 :=[];
-CupBase11Lett :=[];
-CupRel11Lett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,11);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-#Step 1: degree-10 basis cup with degree-1 generators
-CupStep(CupBase10, CupBase10Lett, 10, Gen1, 0, 1, 0, CupBase11, CupBase11Lett, CupRel11Lett, 11);
-#Step 2: degree-9 basis without Gen1 factors cup with degree-2 generators
-CupStep(CupBase9, CupBase9Lett, 9, Gen2, Length(Gen1), 2, Length(Gen1), CupBase11, CupBase11Lett, CupRel11Lett, 11);
-#No Step 3: degree 8 is not a multiple of 3, so no Gen3/Gen6-only monomial has degree 8.
-
-if Length(CupBase11) = CB[11].Mod2Cohomologydim then
-    Print("");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^11) = ", Length(CupBase11) - CB[11].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[11] := CupRel11Lett;
-
-####################### r = 12 #########################
-
-CupBase12 :=[];
-CupBase12Lett :=[];
-CupRel12Lett := [];
-RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,12);
-if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
-fi;
-#Step 1: degree-11 basis cup with degree-1 generators
-CupStep(CupBase11, CupBase11Lett, 11, Gen1, 0, 1, 0, CupBase12, CupBase12Lett, CupRel12Lett, 12);
-#Step 2: degree-10 basis without Gen1 factors cup with degree-2 generators
-CupStep(CupBase10, CupBase10Lett, 10, Gen2, Length(Gen1), 2, Length(Gen1), CupBase12, CupBase12Lett, CupRel12Lett, 12);
-#Step 3: degree-9 basis without Gen1/Gen2 factors cup with degree-3 generators
-CupStep(CupBase9, CupBase9Lett, 9, Gen3, Length(Gen1)+Length(Gen2), 3, Length(Gen1)+Length(Gen2), CupBase12, CupBase12Lett, CupRel12Lett, 12);
-
-#Step 4 begins here: degree-6-gen cup with degree-6-gen (mirrors the r=8 Gen4-cup-Gen4 Step)
-#
-#
-iu :=1;
-for u in Gen6 do
-
-    #### implementing Mod2CupProduct(R,u,v,6,6,CB[6],CB[6],CB[12]) -- part 1: ####
-    ####
-    uCocycle:=CB[6].classToCocycle(u);
-    uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,6,6);
-    ww:=[];
-    for i in [1..(R!.dimension(12))] do
-        Append(ww, [uChainMap([[i,1]])]);
-    od;
-    ####
-    #### implementing Mod2CupProduct(R,u,v,6,6,CB[6],CB[6],CB[12])  -- part 1 ended ####
-
-    iv :=1;
-    for v in Gen6 do
-        if iv>=iu then
-            Lett1 := GensLett[Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5)+iu] + GensLett[Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5)+iv];
-            #Of course now u-cup-v does not contain patterns in CupRelsLett:
-
-
-            #### implementing Mod2CupProduct(R,u,v,6,6,CB[6],CB[6],CB[12]) -- part 2: ####
-            ####
-            vCocycle:=CB[6].classToCocycle(v);
-            uvCocycle:=[];
-            for i in [1..(R!.dimension(12))] do
-                w:=ww[i];
-                sw:=0;
-                for x in w do
-                    sw:=sw + vCocycle[AbsoluteValue(x[1])];
-                od;
-                uvCocycle[i]:=sw mod 2;
-            od;
-            cupped := CB[12].cocycleToClass(uvCocycle);
-            ####
-            #### implementing Mod2CupProduct(R,u,v,6,6,CB[6],CB[6],CB[12]) -- part 2 ended ####
-
-            if cupped = zeroH[12] then         #if u-cup-v is a coboundary
-                Append(CupRelsLett,[Lett1]);
-                Append(CupRel12Lett,[[Lett1]]);
-            elif CupBase12 = [] then        #if no basis yet then push in the genuine cocycle u-cup-v
-                Append(CupBase12,[cupped]);
-                Append(CupBase12Lett,[Lett1]);
-            else
-                sol :=SGC_CachedSolveIn(SolverCache,CupBase12,cupped);
-                if sol = fail then                  #if u-cup-v is a genuine new cocycle
-                    Append(CupBase12,[cupped]);
-                    Append(CupBase12Lett,[Lett1]);
-                else                                #if u-cup-v is expressable by other cocycles in basis
-                    solrel:=Concatenation([Lett1], List(IToPosition(GF2ToZ(sol)),x->CupBase12Lett[x]));
-                    if (Lett1 in CupBase12Lett) = false then
-                        Append(CupRelsLett,[Lett1]);
-                        Append(CupRel12Lett,[solrel]);
-                    fi;
-                fi;
-            fi;
-        fi;
-        iv := iv+1;
-    od;
-    iu := iu+1;
-od;
-#
-#
-#Step 4 finished: degree-6-gen cup with degree-6-gen
-
-#Note that there's no Gen12!!
-
-if Length(CupBase12) = CB[12].Mod2Cohomologydim then
-    Print("");
-else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^12) = ", Length(CupBase12) - CB[12].Mod2Cohomologydim,"\n");
-fi;
-CupRelByDeg[12] := CupRel12Lett;
-
-fi;
-#the above "fi;" ends the r = 9..12 relation search for the degree-6 generator groups.
-#
-#
-#
-#
-#####################################################################################
-
-#
-####   Begin printing cohomology ring   ####
-#
-#CupRelByDeg was populated incrementally as each relation degree completed.
-
-relations := [];
-for r in [2..12] do
+relations:=[];
+for r in [2..outputDegree] do
     if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
         Add(relations,[r,CupRelByDeg[r]]);
     fi;
 od;
 
 if Length(arg) >= 7 then
-    generatorNames := arg[7];
+    generatorNames:=arg[7];
 else
-    generatorNames := GENNAMES[IT];
+    generatorNames:=GENNAMES[IT];
 fi;
 if Length(generatorNames) <> Sum(GenDimAll) then
-    Error("Mod2RingGensAndRels: generator-name count does not match generator count for IT=", IT, "\n");
+    Error("Mod2RingGensAndRels: generator-name count does not match generator count for IT=",IT,"\n");
 fi;
 
-ringData := rec(
-    IT := IT,
-    generators := rec(
-        names := ShallowCopy(generatorNames),
-        degrees := ShallowCopy(GenDegAll),
-        classes := [Gen1,Gen2,Gen3,Gen4,Gen5,Gen6]
+ringData:=rec(
+    IT:=IT,
+    generators:=rec(
+        names:=ShallowCopy(generatorNames),
+        degrees:=ShallowCopy(GenDegAll),
+        classes:=ShallowCopy(GenByDeg)
     ),
-    relations := relations,
-    relationsByDegree := CupRelByDeg,
-    bases := [CupBase1Lett,CupBase2Lett,CupBase3Lett,CupBase4Lett],
-    generatorDimensions := ShallowCopy(GenDimAll),
-    generatorDegrees := ShallowCopy(GenDegAll),
-    maxRelationDegree := n
+    relations:=relations,
+    relationsByDegree:=CupRelByDeg,
+    bases:=List([1..Minimum(outputDegree,4)],
+        r->DegreeState[r].letters),
+    generatorDimensions:=ShallowCopy(GenDimAll),
+    generatorDegrees:=ShallowCopy(GenDegAll),
+    maxRelationDegree:=n
 );
 
 if not returnData then
-    mono:=List(List([1..Sum(GenDimAll)],x->GensLett[x]),x->Letter2Monomial(x,GenDimAll,generatorNames));
-    Print("Z2[", JoinStringsWithSeparator(mono,","), "]");
-
-    mono := 0;
-    for r in [2..12] do
+    mono:=List(List([1..Sum(GenDimAll)],x->GensLett[x]),
+        x->Letter2Monomial(x,GenDimAll,generatorNames));
+    Print("Z2[",JoinStringsWithSeparator(mono,","),"]");
+    mono:=0;
+    for r in [2..outputDegree] do
         if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
-            if mono = 0 then           #mono = 1 means at least one relation already printed
-                Print("/<R", r);
+            if mono = 0 then
+                Print("/<R",r);
             else
-                Print(",R", r);
+                Print(",R",r);
             fi;
-            mono := 1;
+            mono:=1;
         fi;
     od;
     if mono = 1 then
@@ -2751,19 +1072,15 @@ if not returnData then
     else
         Print("\n");
     fi;
-
-    for r in [2..12] do
+    for r in [2..outputDegree] do
         if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
-            Print(Concatenation("R", String(r), ":  "));
-            List(CupRelByDeg[r],x->PrintMonomialString(x,GenDimAll,"+",generatorNames));
+            Print(Concatenation("R",String(r),":  "));
+            List(CupRelByDeg[r],
+                x->PrintMonomialString(x,GenDimAll,"+",generatorNames));
             Print("\n");
         fi;
     od;
-
 fi;
-
-####   End printing cohomology ring   ####
-#
 
 if returnData then
     return ringData;
@@ -2980,11 +1297,24 @@ end;
 #####################################################################
 #####################################################################
 
-SGC_ResolutionForIT:=function(IT)
-local T1,T2,T3,PGGen,G,Gp;
+#The optional degree is the highest cohomology/relation degree requested;
+#the resolution needs one additional boundary map.
+SGC_ResolutionForIT:=function(arg)
+local IT,degree,T1,T2,T3,PGGen,G,Gp;
 
+if Length(arg) < 1 or Length(arg) > 2 then
+    Error("SGC_ResolutionForIT: expected IT or (IT,degree)\n");
+fi;
+IT:=arg[1];
 if not IsInt(IT) or IT < 1 or IT > 230 then
     Error("SGC_ResolutionForIT: IT must be 1..230\n");
+fi;
+degree:=SGC_MaxRelationDegreeForIT(IT);
+if Length(arg)=2 then
+    degree:=arg[2];
+fi;
+if not IsInt(degree) or degree < 1 then
+    Error("SGC_ResolutionForIT: degree must be a positive integer\n");
 fi;
 if not IsBound(PGGens230) then
     Error("SGC_ResolutionForIT: PGGens230 is not loaded\n");
@@ -2998,46 +1328,28 @@ PGGen:=PGGens230[IT];
 G:=Group(Concatenation([T1,T2,T3],PGGen));
 Gp:=AffineCrystGroupOnRight(GeneratorsOfGroup(TransposedMatrixGroup(G)));
 
-return SGC_ResolutionSpaceGroup(Gp,SGC_MaxRelationDegreeForIT(IT)+1);
+return SGC_ResolutionSpaceGroup(Gp,degree+1);
 end;
 
 #####################################################################
 #####################################################################
 
+#The returned Context deliberately retains only its identity, resolution, and
+#structured ring data. Wyckoff-specific state is constructed lazily below.
 SGC_CohomologyData:=function(arg)
 local
-    IT,
-    C2, C2p, M, P, C3,
-    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind, PGMat33Dict, PGindDict,
-    o0,o1,o2,o3,o4,o5,
+    IT, maxDegree, generatorNames, totalGeneratorCount,
+    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind, PGMat33Dict,
+    o1,o2,o3,o4,o5,
     R,CB,
-    GenName_standard, Rdim,lst1,lst2,lst3,lst4,lst5,lst6,lst1to4,
-    MatToPow,GapToPow,GapToPowCache,Fbarhomotopyindinv,Invofg,Prodg1g2Pow,IndToElem,
-    Homotopydeg1,Homotopydeg2,Homotopydeg3,Homotopydeg4,
-    func,funcs,receive,FuncVal,TopoInvdeg3,
-    Gen1, Gen2, Gen3, Gen4, Gen6, GensGAP, requiredGeneratorDegree, GensDim1to4, GensDeg1to4,
+    MatToPow,GapToPow,GapToPowCache,Fbarhomotopyindinv,
+    Homotopydeg1,Homotopydeg2,Homotopydeg3,
+    func,funcs,receive,
+    Gen1, Gen2, Gen3, Gen4, Gen6, GensGAP, requiredGeneratorDegree,
     Gen3Failed, Decomp3, dimH1, dimH2, known, rk0, gcand, savedBreakOnError,
-    RingData, BasesLett, Base3Lett,
+    RingData,
     i,j,k,p,x,y;
 
-#####################################################################
-IndToElem:=function(lst,Lst)         #given lst of 0&1's, extract the elements in Lst corresponding to 1's
-local i,l,out;
-
-if (Length(lst) = Length(Lst)) = false then
-    Error("IndToElem: index vector and list have different lengths (",
-          Length(lst), " vs ", Length(Lst), ")\n");
-fi;
-l:=Length(lst);
-out := [];
-for i in [1..l] do
-    if lst[i] = 1 then
-        Append(out,[Lst[i]]);
-    fi;
-od;
-return out;
-end;
-#####################################################################
 MatToPow:=function(mat)            #given 4x4 matrix, output the list of powers of group generators
 local i, mat33, trans;
 
@@ -3060,37 +1372,6 @@ fi;
 return GapToPowCache[i];
 end;
 #####################################################################
-Invofg:=function(v)
-local vpg, transmat, p;
-
-transmat := [[1,0,0,v[1]],[0,1,0,v[2]],[0,0,1,v[3]],[0,0,0,1]];
-vpg := List([4..(Length(v))],x->v[x]);
-p := LookupDictionary(PGindDict,vpg);
-if p = fail then
-    Error("Invofg: point-group part ", vpg, " not found in PGind.\n");
-fi;
-
-return MatToPow((transmat * PGMat[p])^(-1));
-end;
-#####################################################################
-Prodg1g2Pow:=function(v1,v2)
-local vpg1, vpg2, transmat1, transmat2, prod, p1, p2;
-
-transmat1 := [[1,0,0,v1[1]],[0,1,0,v1[2]],[0,0,1,v1[3]],[0,0,0,1]];
-transmat2 := [[1,0,0,v2[1]],[0,1,0,v2[2]],[0,0,1,v2[3]],[0,0,0,1]];
-vpg1 := List([4..(Length(v1))],x->v1[x]);
-vpg2 := List([4..(Length(v2))],x->v2[x]);
-p1 := LookupDictionary(PGindDict,vpg1);
-p2 := LookupDictionary(PGindDict,vpg2);
-if p1 = fail or p2 = fail then
-    Error("Prodg1g2Pow: point-group part not found in PGind (", vpg1, " or ", vpg2, ").\n");
-fi;
-
-prod := transmat1 * PGMat[p1] * transmat2 * PGMat[p2];
-
-return MatToPow(prod);
-end;
-#####################################################################
 Fbarhomotopyindinv:=function(i,lst)            #This is the function Fbarhomotopyindinv in Mathematica
 #ResolutionSpaceGroup words are LEFT-module (letter [j,g] = Elts[g].e_j), so
 #the bar-resolution contracting homotopy PREPENDS the translation:
@@ -3099,156 +1380,42 @@ Fbarhomotopyindinv:=function(i,lst)            #This is the function Fbarhomotop
 return List(lst,x->Concatenation([i],x));
 end;
 #####################################################################
-FuncVal:=function(lett,v)                #Given a degree-3 monomial and argument (either g1,g1,g1 or g1,g2,g2 or g1,g2,g3), evaluate the cocycle.
-local deg,i,j,jval,k,val,lett1;
-deg := GensDeg1to4*lett;
-
-#Only degree-3 monomials reach this function (TopoInvdeg3 always passes
-#Base3Lett letters). The old degree-1/2 branches were dead and the degree-2
-#one was wrong (it indexed funcs[2] with a degree-1 position); anyone wiring
-#up lower-degree invariant evaluation later should get a clear error here.
-if deg <> 3 then
-    Error("FuncVal: only degree-3 monomials are supported, got degree ", deg, "\n");
-fi;
-
-lett1 := ShallowCopy(lett);
-
-for i in [1..Length(lett)] do            #finding the first generator that exists in lett
-    if lett1[i] > 0 then
-        break;
-    fi;
-od;
-
-if i > GensDim1to4[1]+GensDim1to4[2] then                              #if a degree-3 generator
-    val := funcs[3][i-GensDim1to4[1]-GensDim1to4[2]](v[1],v[2],v[3]);
-else                                                                   #if not a degree-3 gen., then must be a cup prod.
-    lett1[i] := lett1[i] - 1;
-    for j in [1..Length(lett)] do
-        if lett1[j] > 0 then
-            jval := lett1[j];        #label of generator stored in j; power of this generator stored in jval
-            break;
-        fi;
-    od;
-    if j > GensDim1to4[1] then                                         #if a degree-1 gen. cup a degree-2 gen.
-        val := funcs[1][i](v[1]) * funcs[2][j-GensDim1to4[1]](v[2],v[3]);
-    else                                                               #if not, then must be cup of three degree-1 gens.
-        lett1[j] := lett1[j] - 1;
-        k := Position(lett1,1);
-        val := funcs[1][i](v[1]) * funcs[1][j](v[2]) * funcs[1][k](v[3]);
-    fi;
-fi;
-return val;
-end;
-#####################################################################
-TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters,[matrices giving linear combination of letters])
-local gs,letters,solrels,vallist;
-
-gs := arg[1];               #List of group elements [g1] or [g1,g2] or [g1,g2,g3] at which the cocycles are evaluated
-letters := arg[2];          #List of letters representing the monomials
-vallist := fail;            #stays fail unless a topological-invariant formula matches below
-
-
-if Length(arg) = 2 then
-    solrels := fail;
-else
-    solrels := arg[3];
-fi;
-
-if Length(gs) = 1 then
-    if Prodg1g2Pow(gs[1],gs[1]) = gs[1]*0 then
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[1],gs[1]]));                                    #Topo inv varphi1
-    else
-        Print("varphi(g,g,g) is not a topological invariant!!!!\n");
-    fi;
-elif Length(gs) = 2 then
-    if (Prodg1g2Pow(gs[2],gs[2]) = gs[2]*0) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) then #Topo inv varphi2
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[2]])+FuncVal(x,[gs[2],gs[2],gs[1]]));
-    else
-        Print("varphi(g1,g2,g2) is not a topological invariant!!!!\n");
-        Print(gs[1],gs[2],"\n");
-    fi;
-
-elif Length(gs) = 3 then
-
-    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) then     #Topo inv varphi3
-        
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[3]])+FuncVal(x,[gs[2],gs[3],gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-    
-    elif ((Prodg1g2Pow(gs[2],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[2])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2]))) then     #Topo inv tildevarphi for No. 7,26,36,39,46,57,62
-        
-        vallist := List(letters,x->FuncVal(x,[gs[3],Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[1],Invofg(gs[2])])+FuncVal(x,[gs[3],gs[2],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),gs[3],Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[1],gs[3],Invofg(gs[2])])+FuncVal(x,[gs[2],gs[3],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2])),gs[3]])+FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],Invofg(gs[2]),gs[3]])+FuncVal(x,[gs[2],Invofg(gs[2]),gs[3]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(gs[2],gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 76 & 78
-        
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],gs[3],gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 4
-        
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 9,161
-        
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-    else
-        Print("varphi(g1,g2,g3) is not a topological invariant!!!!\n");
-    fi;
-
-elif Length(gs) = 4 then
-    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[3],gs[3]) = gs[2]) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) then     #Topo inv varphi3 for No. 19 and 198
-        
-        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[1])]) + FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[2])])+ FuncVal(x,[gs[2],gs[1],Invofg(gs[2])]) + FuncVal(x,[gs[2],Invofg(gs[2]),gs[1]]) + FuncVal(x,[gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]]) + FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]]));
-    
-    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 29
-
-        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
-    
-    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(gs[1],Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 33
-        
-        vallist :=
-        List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[2],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
-    fi;
-else
-    Print("Wrong in checking topological invariant: Number of group elements is not between 1 and 4!!\n");
-fi;
-if vallist = fail then      #no formula matched (or input flagged "not a topological invariant") -- fail loudly, not with an opaque unbound-variable error
-    Error("TopoInvdeg3: no topological-invariant formula matched the given group element(s): ", gs, "\n");
-fi;
-if solrels = fail then
-    return GF2ToZ(vallist*Z(2));
-fi;
-return GF2ToZ((solrels*vallist)*Z(2));
-end;
-#####################################################################
 
 
     ####################BEGIN TO READ THE INPUT##################
 
-if (Length(arg) <> 1 and Length(arg) <> 2)
+if Length(arg) < 1 or Length(arg) > 3
    or not IsInt(arg[1]) or arg[1] < 1 or arg[1] > 230 then
-    Error("cohomology API: expected IT or (IT,R), with IT in 1..230\n");
+    Error("cohomology API: expected IT, (IT,R), or (IT,R,degree), with IT in 1..230\n");
 fi;
 
 IT:=arg[1];
+maxDegree:=SGC_MaxRelationDegreeForIT(IT);
+if Length(arg) = 3 then
+    maxDegree:=arg[3];
+fi;
+if not IsInt(maxDegree) or maxDegree < 3 then
+    Error("cohomology API: degree cap must be an integer at least 3\n");
+fi;
 
 #The data globals below come from gap/data.gi. Fail with a clear message if
 #that file was not Read in first.
-if not (IsBound(PGGens230) and IsBound(funcs230) and IsBound(IWP) and IsBound(GENNAMES)) then
-    Error("cohomology API: required data not loaded -- Read the data file defining PGGens230, funcs230, IWP and GENNAMES before calling.\n");
+if not (IsBound(PGGens230) and IsBound(funcs230) and IsBound(GENNAMES)) then
+    Error("cohomology API: required data not loaded -- Read the data file defining PGGens230, funcs230 and GENNAMES before calling.\n");
 fi;
-if Length(arg) = 2 then
+if Length(arg) >= 2 then
     if not (IsRecord(arg[2]) or IsComponentObjectRep(arg[2])) or not IsBound(arg[2]!.dimension)
        or not IsBound(arg[2]!.boundary) or not IsBound(arg[2]!.elts) then
         Error("cohomology API: R must be a HAP resolution\n");
     fi;
-    if Length(Size(arg[2]))-1 < SGC_MaxRelationDegreeForIT(IT) then
+    if Length(Size(arg[2]))-1 < maxDegree then
         Error("cohomology API: R does not reach the required relation degree ",
-              SGC_MaxRelationDegreeForIT(IT), " for IT=", IT, "\n");
+              maxDegree, " for IT=", IT, "\n");
     fi;
 fi;
 
 PGMat33 := [];
-PGMat := [];     #forward 4x4 point-group representatives; PGMat[i] = PGMatinv[i]^(-1),
-                 #precomputed so the hot paths (Invofg, Prodg1g2Pow, LSM scan) never invert
+PGMat := [];     #forward 4x4 point-group representatives; PGMat[i] = PGMatinv[i]^(-1)
 PGMatinv := [];
 PGind := [];
 
@@ -3321,15 +1488,11 @@ else
     Print("Number of Point Group Generators Exceeds 5 -- WRONG!!!");
 fi;
 
-#These dictionaries deliberately retain the first occurrence, matching Position.
-#They are private to this Context's closures and therefore tied to its exact
-#point-group enumeration and resolution.
-PGindDict:=NewDictionary(PGind[1],true);
+#This dictionary deliberately retains the first occurrence, matching Position.
+#It is local to construction of this Context and tied to this point-group
+#enumeration and resolution.
 PGMat33Dict:=NewDictionary(PGMat33[1],true);
 for i in [1..Length(PGind)] do
-    if LookupDictionary(PGindDict,PGind[i]) = fail then
-        AddDictionary(PGindDict,PGind[i],i);
-    fi;
     if LookupDictionary(PGMat33Dict,PGMat33[i]) = fail then
         AddDictionary(PGMat33Dict,PGMat33[i],i);
     fi;
@@ -3337,7 +1500,7 @@ od;
 
 
 if Length(arg) = 1 then
-    R:=SGC_ResolutionForIT(IT);
+    R:=SGC_ResolutionForIT(IT,maxDegree);
 else
     R:=arg[2];
 fi;
@@ -3356,7 +1519,7 @@ Homotopydeg3:=List([1..R!.dimension(3)],x->Concatenation(List(R!.boundary(3,x),y
 
 
 CB:=[];
-for p in [1..4] do
+for p in [1..3] do
 CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
 od;
 
@@ -3403,10 +1566,14 @@ od;
 #Compute generic generators once, and only to the highest degree actually
 #needed. Explicit Gen1/Gen2 and successfully transported Gen3 remain authoritative.
 requiredGeneratorDegree:=0;
-if (IT in SGC_Degree6GeneratorGroups) = true then
+if maxDegree >= 6 and (IT in SGC_Degree6GeneratorGroups) = true then
     requiredGeneratorDegree:=6;
-elif (IT in SGC_Degree4GeneratorGroups) = true or Length(Gen3Failed) > 0 then
+elif maxDegree >= 4 and (IT in SGC_Degree4GeneratorGroups) = true then
     requiredGeneratorDegree:=4;
+elif Length(Gen3Failed) > 0 then
+    #Keep the legacy degree-4 pass for full Contexts, while the dedicated
+    #Wyckoff path stops at the degree-3 data it actually consumes.
+    requiredGeneratorDegree:=Minimum(4,maxDegree);
 fi;
 if requiredGeneratorDegree > 0 then
     GensGAP:=Mod2RingGenerators(R,requiredGeneratorDegree,3);
@@ -3450,11 +1617,11 @@ fi;
 
 
 Gen4:=[];
-if (IT in SGC_Degree4GeneratorGroups) = true then
+if maxDegree >= 4 and (IT in SGC_Degree4GeneratorGroups) = true then
     Gen4 := GensGAP[4];
 fi;
 Gen6:=[];
-if (IT in SGC_Degree6GeneratorGroups) = true then
+if maxDegree >= 6 and (IT in SGC_Degree6GeneratorGroups) = true then
     Gen6 := GensGAP[6];
 fi;
 
@@ -3465,60 +1632,339 @@ if Length(Gen4) > 0 and Length(SGC_RowBasisMod2(Gen4)) < Length(Gen4) then
 fi;
 
 
-RingData := Mod2RingGensAndRels(IT,3,R,[Gen1,Gen2,Gen3,Gen4,[],Gen6],true,
-                                SGC_MaxRelationDegreeForIT(IT));
-BasesLett := RingData.bases;
-
-GensDim1to4 := [Length(Gen1),Length(Gen2),Length(Gen3),Length(Gen4)];
-GensDeg1to4:=Concatenation(List([1..Length(Gen1)],x->1),List([1..Length(Gen2)],x->2),List([1..Length(Gen3)],x->3),List([1..Length(Gen4)],x->4));
-
-Base3Lett := BasesLett[3];
+totalGeneratorCount:=Length(Gen1)+Length(Gen2)+Length(Gen3)+
+                     Length(Gen4)+Length(Gen6);
+generatorNames:=GENNAMES[IT]{[1..totalGeneratorCount]};
+RingData := Mod2RingGensAndRels(
+    IT,3,R,[Gen1,Gen2,Gen3,Gen4,[],Gen6],true,maxDegree,generatorNames);
 
 return rec(
     isSGCCohomologyContext := true,
     IT := IT,
     resolution := R,
-    ring := RingData,
-    gen3Failed := Gen3Failed,
-    base3Letters := Base3Lett,
-    generatorDimensions := GensDim1to4,
-    generatorDegrees := GensDeg1to4,
-    pointGroupIndices := PGind,
-    pointGroupMatrices := PGMat,
-    topoInvdeg3 := TopoInvdeg3,
-    productPower := Prodg1g2Pow,
-    indToElem := IndToElem
+    ring := RingData
 );
 end;
 
 #####################################################################
 #####################################################################
 
-SGC_WPCohomologyData:=function(Context)
+#The IT and (IT,R) forms need only H^3, so they cap ring construction at 3;
+#SGC_ResolutionForIT consequently constructs the resolution through degree 4.
+SGC_WPCohomologyData:=function(arg)
 local
-    IT, Base3Lett, GensDim1to4, PGind, PGMat,
-    TopoInvdeg3, Prodg1g2Pow, IndToElem,
+    Context, R, IT, Base3Lett, GensDim1to4, GensDeg1to4,
+    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind,
+    PGMat33Dict, PGindDict, funcs,
+    MatToPow, Invofg, TopoInvdeg3, Prodg1g2Pow, IndToElem, FuncVal,
     LSMLett, Mat, mat2, vec, LSMMat, CountLSM,
     g1, g2, g2Square, Candidates, candidate1, candidate2,
     pointIndex, x1, y1, z1, identityAffine, Span, addCandidate,
     scanCandidates, rank,
     table, coordinates, entry, label, key, target, equalPosition,
-    zeroCoordinate, j, x;
+    zeroCoordinate, i, j, k, o1, o2, o3, o4, o5, x;
+
+if Length(arg) = 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
+   and IsBound(arg[1].isSGCCohomologyContext)
+   and arg[1].isSGCCohomologyContext = true then
+    Context:=arg[1];
+elif Length(arg) = 1 and IsInt(arg[1]) then
+    R:=SGC_ResolutionForIT(arg[1],3);
+    Context:=SGC_CohomologyData(arg[1],R,3);
+elif Length(arg) = 2 and IsInt(arg[1]) then
+    R:=arg[2];
+    Context:=SGC_CohomologyData(arg[1],R,3);
+else
+    Error("SGC_WPCohomologyData: expected Context, IT, or (IT,R)\n");
+fi;
 
 if not (IsRecord(Context) or IsComponentObjectRep(Context))
    or not IsBound(Context.isSGCCohomologyContext)
    or Context.isSGCCohomologyContext <> true then
     Error("SGC_WPCohomologyData: expected a prepared cohomology Context\n");
 fi;
+if not IsBound(Context.ring.bases) or Length(Context.ring.bases) < 3 then
+    Error("SGC_WPCohomologyData: Context does not contain degree-3 cohomology data\n");
+fi;
+if not (IsBound(PGGens230) and IsBound(funcs230) and IsBound(IWP)) then
+    Error("SGC_WPCohomologyData: required Wyckoff data is not loaded\n");
+fi;
 
 IT:=Context.IT;
-Base3Lett:=Context.base3Letters;
-GensDim1to4:=Context.generatorDimensions;
-PGind:=Context.pointGroupIndices;
-PGMat:=Context.pointGroupMatrices;
-TopoInvdeg3:=Context.topoInvdeg3;
-Prodg1g2Pow:=Context.productPower;
-IndToElem:=Context.indToElem;
+Base3Lett:=Context.ring.bases[3];
+GensDim1to4:=Context.ring.generatorDimensions;
+GensDeg1to4:=Context.ring.generatorDegrees;
+funcs:=funcs230[IT];
+
+#The Wyckoff calculation owns its point-group lookup data and degree-3
+#topological-invariant evaluator. None of these closures escape through Context.
+PGMat33:=[];
+PGMat:=[];
+PGMatinv:=[];
+PGind:=[];
+PGGen:=PGGens230[IT];
+PGGen33:=List([1..Length(PGGen)],k->
+    List([1..3],i->List([1..3],j->PGGen[k][i,j])));
+
+if Length(PGGen) = 0 then
+    PGind:=[[]];
+    PGMat33:=[[[1,0,0],[0,1,0],[0,0,1]]];
+    PGMat:=[[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]];
+    PGMatinv:=[[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]];
+elif Length(PGGen) = 1 then
+    for o1 in [0..(Order(PGGen33[1])-1)] do
+        Add(PGind,[o1]);
+        Add(PGMat33,PGGen33[1]^o1);
+        Add(PGMat,PGGen[1]^o1);
+        Add(PGMatinv,PGMat[Length(PGMat)]^(-1));
+    od;
+elif Length(PGGen) = 2 then
+    for o1 in [0..(Order(PGGen33[1])-1)] do
+        for o2 in [0..1] do
+            Add(PGind,[o1,o2]);
+            Add(PGMat33,PGGen33[1]^o1*PGGen33[2]^o2);
+            Add(PGMat,PGGen[1]^o1*PGGen[2]^o2);
+            Add(PGMatinv,PGMat[Length(PGMat)]^(-1));
+        od;
+    od;
+elif Length(PGGen) = 3 then
+    for o1 in [0..(Order(PGGen33[1])-1)] do
+        for o2 in [0..1] do
+            for o3 in [0..(Order(PGGen33[3])-1)] do
+                Add(PGind,[o1,o2,o3]);
+                Add(PGMat33,PGGen33[1]^o1*PGGen33[2]^o2*PGGen33[3]^o3);
+                Add(PGMat,PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3);
+                Add(PGMatinv,PGMat[Length(PGMat)]^(-1));
+            od;
+        od;
+    od;
+elif Length(PGGen) = 4 then
+    for o1 in [0..(Order(PGGen33[1])-1)] do
+        for o2 in [0..1] do
+            for o3 in [0..(Order(PGGen33[3])-1)] do
+                for o4 in [0..(Order(PGGen33[4])-1)] do
+                    Add(PGind,[o1,o2,o3,o4]);
+                    Add(PGMat33,PGGen33[1]^o1*PGGen33[2]^o2*
+                        PGGen33[3]^o3*PGGen33[4]^o4);
+                    Add(PGMat,PGGen[1]^o1*PGGen[2]^o2*
+                        PGGen[3]^o3*PGGen[4]^o4);
+                    Add(PGMatinv,PGMat[Length(PGMat)]^(-1));
+                od;
+            od;
+        od;
+    od;
+elif Length(PGGen) = 5 then
+    for o1 in [0..(Order(PGGen33[1])-1)] do
+        for o2 in [0..1] do
+            for o3 in [0..(Order(PGGen33[3])-1)] do
+                for o4 in [0..(Order(PGGen33[4])-1)] do
+                    for o5 in [0..(Order(PGGen33[5])-1)] do
+                        Add(PGind,[o1,o2,o3,o4,o5]);
+                        Add(PGMat33,PGGen33[1]^o1*PGGen33[2]^o2*
+                            PGGen33[3]^o3*PGGen33[4]^o4*PGGen33[5]^o5);
+                        Add(PGMat,PGGen[1]^o1*PGGen[2]^o2*
+                            PGGen[3]^o3*PGGen[4]^o4*PGGen[5]^o5);
+                        Add(PGMatinv,PGMat[Length(PGMat)]^(-1));
+                    od;
+                od;
+            od;
+        od;
+    od;
+else
+    Error("SGC_WPCohomologyData: point group has more than five generators\n");
+fi;
+
+PGindDict:=NewDictionary(PGind[1],true);
+PGMat33Dict:=NewDictionary(PGMat33[1],true);
+for i in [1..Length(PGind)] do
+    if LookupDictionary(PGindDict,PGind[i]) = fail then
+        AddDictionary(PGindDict,PGind[i],i);
+    fi;
+    if LookupDictionary(PGMat33Dict,PGMat33[i]) = fail then
+        AddDictionary(PGMat33Dict,PGMat33[i],i);
+    fi;
+od;
+
+MatToPow:=function(mat)
+local position,mat33,trans;
+mat33:=List([1..3],i->List([1..3],j->mat[i,j]));
+position:=LookupDictionary(PGMat33Dict,mat33);
+if position = fail then
+    Error("MatToPow: the 3x3 rotation part is not among the enumerated point-group matrices.\n");
+fi;
+trans:=mat*PGMatinv[position];
+return Concatenation(List([1..3],i->trans[i,4]),PGind[position]);
+end;
+
+Invofg:=function(v)
+local vpg,transmat,position;
+transmat:=[[1,0,0,v[1]],[0,1,0,v[2]],[0,0,1,v[3]],[0,0,0,1]];
+vpg:=v{[4..Length(v)]};
+position:=LookupDictionary(PGindDict,vpg);
+if position = fail then
+    Error("Invofg: point-group part ",vpg," not found in PGind.\n");
+fi;
+return MatToPow((transmat*PGMat[position])^(-1));
+end;
+
+Prodg1g2Pow:=function(v1,v2)
+local vpg1,vpg2,transmat1,transmat2,position1,position2;
+transmat1:=[[1,0,0,v1[1]],[0,1,0,v1[2]],[0,0,1,v1[3]],[0,0,0,1]];
+transmat2:=[[1,0,0,v2[1]],[0,1,0,v2[2]],[0,0,1,v2[3]],[0,0,0,1]];
+vpg1:=v1{[4..Length(v1)]};
+vpg2:=v2{[4..Length(v2)]};
+position1:=LookupDictionary(PGindDict,vpg1);
+position2:=LookupDictionary(PGindDict,vpg2);
+if position1 = fail or position2 = fail then
+    Error("Prodg1g2Pow: point-group part not found in PGind (",
+          vpg1," or ",vpg2,").\n");
+fi;
+return MatToPow(transmat1*PGMat[position1]*transmat2*PGMat[position2]);
+end;
+
+IndToElem:=function(indices,elements)
+local position,out;
+if Length(indices) <> Length(elements) then
+    Error("IndToElem: index vector and list have different lengths (",
+          Length(indices)," vs ",Length(elements),")\n");
+fi;
+out:=[];
+for position in [1..Length(indices)] do
+    if indices[position] = 1 then
+        Add(out,elements[position]);
+    fi;
+od;
+return out;
+end;
+
+FuncVal:=function(lett,v)                #Given a degree-3 monomial and argument (either g1,g1,g1 or g1,g2,g2 or g1,g2,g3), evaluate the cocycle.
+local deg,i,j,jval,k,val,lett1;
+deg := GensDeg1to4*lett;
+
+#Only degree-3 monomials reach this function (TopoInvdeg3 always passes
+#Base3Lett letters). The old degree-1/2 branches were dead and the degree-2
+#one was wrong (it indexed funcs[2] with a degree-1 position); anyone wiring
+#up lower-degree invariant evaluation later should get a clear error here.
+if deg <> 3 then
+    Error("FuncVal: only degree-3 monomials are supported, got degree ", deg, "\n");
+fi;
+
+lett1 := ShallowCopy(lett);
+
+for i in [1..Length(lett)] do            #finding the first generator that exists in lett
+    if lett1[i] > 0 then
+        break;
+    fi;
+od;
+
+if i > GensDim1to4[1]+GensDim1to4[2] then                              #if a degree-3 generator
+    val := funcs[3][i-GensDim1to4[1]-GensDim1to4[2]](v[1],v[2],v[3]);
+else                                                                   #if not a degree-3 gen., then must be a cup prod.
+    lett1[i] := lett1[i] - 1;
+    for j in [1..Length(lett)] do
+        if lett1[j] > 0 then
+            jval := lett1[j];        #label of generator stored in j; power of this generator stored in jval
+            break;
+        fi;
+    od;
+    if j > GensDim1to4[1] then                                         #if a degree-1 gen. cup a degree-2 gen.
+        val := funcs[1][i](v[1]) * funcs[2][j-GensDim1to4[1]](v[2],v[3]);
+    else                                                               #if not, then must be cup of three degree-1 gens.
+        lett1[j] := lett1[j] - 1;
+        k := Position(lett1,1);
+        val := funcs[1][i](v[1]) * funcs[1][j](v[2]) * funcs[1][k](v[3]);
+    fi;
+fi;
+return val;
+end;
+#####################################################################
+TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters,[matrices giving linear combination of letters])
+local gs,letters,solrels,vallist;
+
+gs := arg[1];               #List of group elements [g1] or [g1,g2] or [g1,g2,g3] at which the cocycles are evaluated
+letters := arg[2];          #List of letters representing the monomials
+vallist := fail;            #stays fail unless a topological-invariant formula matches below
+
+if IsBoundGlobal("SGC_WP_TOPO_INV_OBSERVER") then
+    ValueGlobal("SGC_WP_TOPO_INV_OBSERVER")(rec(
+        IT:=IT,
+        groupElementCount:=Length(gs),
+        letterCount:=Length(letters)
+    ));
+fi;
+
+
+if Length(arg) = 2 then
+    solrels := fail;
+else
+    solrels := arg[3];
+fi;
+
+if Length(gs) = 1 then
+    if Prodg1g2Pow(gs[1],gs[1]) = gs[1]*0 then
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[1],gs[1]]));                                    #Topo inv varphi1
+    else
+        Print("varphi(g,g,g) is not a topological invariant!!!!\n");
+    fi;
+elif Length(gs) = 2 then
+    if (Prodg1g2Pow(gs[2],gs[2]) = gs[2]*0) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) then #Topo inv varphi2
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[2]])+FuncVal(x,[gs[2],gs[2],gs[1]]));
+    else
+        Print("varphi(g1,g2,g2) is not a topological invariant!!!!\n");
+        Print(gs[1],gs[2],"\n");
+    fi;
+
+elif Length(gs) = 3 then
+
+    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) then     #Topo inv varphi3
+
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[3]])+FuncVal(x,[gs[2],gs[3],gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
+
+    elif ((Prodg1g2Pow(gs[2],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[2])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2]))) then     #Topo inv tildevarphi for No. 7,26,36,39,46,57,62
+
+        vallist := List(letters,x->FuncVal(x,[gs[3],Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[1],Invofg(gs[2])])+FuncVal(x,[gs[3],gs[2],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),gs[3],Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[1],gs[3],Invofg(gs[2])])+FuncVal(x,[gs[2],gs[3],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2])),gs[3]])+FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],Invofg(gs[2]),gs[3]])+FuncVal(x,[gs[2],Invofg(gs[2]),gs[3]]));
+
+    elif ((Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(gs[2],gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 76 & 78
+
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],gs[3],gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
+
+    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 4
+
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
+
+    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 9,161
+
+        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
+    else
+        Print("varphi(g1,g2,g3) is not a topological invariant!!!!\n");
+    fi;
+
+elif Length(gs) = 4 then
+    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[3],gs[3]) = gs[2]) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) then     #Topo inv varphi3 for No. 19 and 198
+
+        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[1])]) + FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[2])])+ FuncVal(x,[gs[2],gs[1],Invofg(gs[2])]) + FuncVal(x,[gs[2],Invofg(gs[2]),gs[1]]) + FuncVal(x,[gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]]) + FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]]));
+
+    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 29
+
+        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
+
+    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(gs[1],Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 33
+
+        vallist :=
+        List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[2],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
+    fi;
+else
+    Print("Wrong in checking topological invariant: Number of group elements is not between 1 and 4!!\n");
+fi;
+if vallist = fail then      #no formula matched (or input flagged "not a topological invariant") -- fail loudly, not with an opaque unbound-variable error
+    Error("TopoInvdeg3: no topological-invariant formula matched the given group element(s): ", gs, "\n");
+fi;
+if solrels = fail then
+    return GF2ToZ(vallist*Z(2));
+fi;
+return GF2ToZ((solrels*vallist)*Z(2));
+end;
+#####################################################################
 
 #Print all the elements of the mod-2 cohomology at degree 3:
 
@@ -3562,7 +2008,7 @@ fi;
 
 #Build the bounded candidates once, in the old PGind -> x -> y -> z order.
 #The affine matrix is used only for order/trace classification and the inner
-#commutativity test; Context.productPower remains authoritative for formulas.
+#commutativity test; Prodg1g2Pow remains authoritative for invariant formulas.
 Candidates:=[];
 for pointIndex in [1..Length(PGind)] do
     for x1 in [-2..2] do
@@ -3663,30 +2109,8 @@ return rec(
     context:=Context,
     table:=table,
     coordinates:=coordinates,
-    rawIWP:=IWP[IT],
-    lsmLetters:=LSMLett
+    rawIWP:=IWP[IT]
 );
-end;
-
-#####################################################################
-#####################################################################
-
-SGC_PrintWPCohomologyData:=function(Context,WPData)
-local entry,j;
-
-Print("LSM:\n");
-j:=1;
-for entry in WPData.rawIWP do
-    Print(entry[1]," ");
-    if entry[2] <> [] then
-        PrintMonomialString(Context.indToElem(WPData.lsmLetters[j],Context.base3Letters),
-                            Context.generatorDimensions,"+",
-                            Context.ring.generators.names,"\n");
-        j:=j+1;
-    else
-        Print("\n");
-    fi;
-od;
 end;
 
 #####################################################################
@@ -3699,6 +2123,29 @@ else
     PrintMonomialString(Class,Context.ring.generatorDimensions,"+",
                         Context.ring.generators.names,"\n");
 fi;
+end;
+
+#####################################################################
+#####################################################################
+
+SGC_PrintWPCohomologyData:=function(Context,WPData)
+local entry,equalPosition,key;
+
+Print("LSM:\n");
+for entry in WPData.rawIWP do
+    Print(entry[1]," ");
+    if entry[2] <> [] then
+        equalPosition:=Position(entry[1],'=');
+        if equalPosition = fail then
+            key:=entry[1];
+        else
+            key:=entry[1]{[1..equalPosition-1]};
+        fi;
+        SGC_PrintCohomologyClass(Context,WPData.table.(key));
+    else
+        Print("\n");
+    fi;
+od;
 end;
 
 #####################################################################
@@ -3728,12 +2175,12 @@ end;
 #####################################################################
 
 WPCohomologyTable:=function(arg)
-local Context, R, WPData, entry, equalPosition, key;
+local Context, WPData, entry, equalPosition, key;
 
-if Length(arg) >= 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
-   and IsBound(arg[1].isSGCCohomologyContext)
-   and arg[1].isSGCCohomologyContext = true then
-    Context:=arg[1];
+    if Length(arg) >= 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
+    and IsBound(arg[1].isSGCCohomologyContext)
+    and arg[1].isSGCCohomologyContext = true then
+        Context:=arg[1];
     if Length(arg) = 1 then
         WPData:=SGC_WPCohomologyData(Context);
     elif Length(arg) = 2 and (IsRecord(arg[2]) or IsComponentObjectRep(arg[2]))
@@ -3747,13 +2194,11 @@ if Length(arg) >= 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
         Error("WPCohomologyTable: expected Context or (Context,WPData)\n");
     fi;
 elif Length(arg) = 1 and IsInt(arg[1]) then
-    R:=SGC_ResolutionForIT(arg[1]);
-    Context:=SGC_CohomologyData(arg[1],R);
-    WPData:=SGC_WPCohomologyData(Context);
+    WPData:=SGC_WPCohomologyData(arg[1]);
+    Context:=WPData.context;
 elif Length(arg) = 2 and IsInt(arg[1]) then
-    R:=arg[2];
-    Context:=SGC_CohomologyData(arg[1],R);
-    WPData:=SGC_WPCohomologyData(Context);
+    WPData:=SGC_WPCohomologyData(arg[1],arg[2]);
+    Context:=WPData.context;
 else
     Error("WPCohomologyTable: expected Context, (Context,WPData), IT, or (IT,R)\n");
 fi;
@@ -3774,7 +2219,7 @@ end;
 #####################################################################
 
 WPCohomologyClass:=function(arg)
-local R, WPs, Context, WPData, rawLabels, coordinate, wp, equalPosition, key, i, Class;
+local WPs, Context, WPData, rawLabels, coordinate, wp, equalPosition, key, i, Class;
 
 if Length(arg) >= 2 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
    and IsBound(arg[1].isSGCCohomologyContext)
@@ -3796,14 +2241,12 @@ if Length(arg) >= 2 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
     fi;
 elif Length(arg) = 2 and IsInt(arg[1]) then
     WPs:=arg[2];
-    R:=SGC_ResolutionForIT(arg[1]);
-    Context:=SGC_CohomologyData(arg[1],R);
-    WPData:=SGC_WPCohomologyData(Context);
+    WPData:=SGC_WPCohomologyData(arg[1]);
+    Context:=WPData.context;
 elif Length(arg) = 3 and IsInt(arg[1]) then
-    R:=arg[2];
     WPs:=arg[3];
-    Context:=SGC_CohomologyData(arg[1],R);
-    WPData:=SGC_WPCohomologyData(Context);
+    WPData:=SGC_WPCohomologyData(arg[1],arg[2]);
+    Context:=WPData.context;
 else
     Error("WPCohomologyClass: expected prepared Context data or an IT signature\n");
 fi;
@@ -3812,7 +2255,7 @@ if not IsList(WPs) or IsString(WPs)
     Error("WPCohomologyClass: WPs must be a list of Wyckoff-position labels\n");
 fi;
 rawLabels:=List(WPData.rawIWP,x->x[1]);
-coordinate:=List([1..Length(Context.base3Letters)],x->0);
+coordinate:=List([1..Length(Context.ring.bases[3])],x->0);
 for wp in WPs do
     equalPosition:=Position(wp,'=');
     if equalPosition = fail then
@@ -3832,7 +2275,8 @@ for wp in WPs do
         coordinate[i]:=RemInt(coordinate[i]+WPData.coordinates.(key)[i],2);
     od;
 od;
-Class:=Context.indToElem(coordinate,Context.base3Letters);
+Class:=List(Filtered([1..Length(coordinate)],i->coordinate[i]=1),
+            i->Context.ring.bases[3][i]);
 SGC_PrintCohomologyClass(Context,Class);
 end;
 

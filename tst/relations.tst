@@ -21,6 +21,21 @@ gap> SGC_RELATION_REDUCER_OBSERVER := function(reducer)
 >     fi;
 > end;;
 
+gap> degreeFamilyView := function(dims,degree)
+>     return List(SGC_DegreeCupFamilies(dims,degree),
+>         family->[family.factorDegree,family.sourceDegree,
+>                  family.restrictWidth,family.candidateOrder]);
+> end;;
+gap> [degreeFamilyView([3,2,1,1,0,2],2),
+>     degreeFamilyView([3,2,1,1,0,2],7),
+>     degreeFamilyView([3,2,1,1,0,2],12)];
+[ [ [ 1, 1, 0, "offDiagonalThenSquares" ] ],
+  [ [ 1, 6, 0, "cartesian" ], [ 2, 5, 3, "cartesian" ],
+    [ 3, 4, 5, "cartesian" ] ],
+  [ [ 1, 11, 0, "cartesian" ], [ 2, 10, 3, "cartesian" ],
+    [ 3, 9, 5, "cartesian" ], [ 4, 8, 6, "cartesian" ],
+    [ 6, 6, 7, "unorderedPairs" ] ] ]
+
 # IT219 exercises every relation degree through 12.  Coefficient solves in
 # this invocation must not populate the compatibility process-global cache.
 gap> savedSolverCacheList := SGC_SolverCacheList;;
@@ -72,6 +87,42 @@ gap> D136relations := SGC_CohomologyData(136);;
 gap> relationReducerStats;
 [ [ 3, 9, 6 ], [ 4, 45, 26 ], [ 5, 149, 76 ], [ 6, 399, 176 ],
   [ 7, 926, 352 ], [ 8, 1983, 656 ] ]
+
+# An explicit cap may be any supported integer at least 2.  Supplied genuine
+# generator slots remain visible through that cap, including empty high slots.
+gap> relationReducerTrace := [];; relationReducerStats := [];;
+gap> R1degree13 := SGC_ResolutionSpaceGroup(SpaceGroupIT(3,1),14);;
+gap> G1degree13 := Mod2RingGenerators(R1degree13,4,3);;
+gap> for r in [5..13] do G1degree13[r] := []; od;;
+gap> D1degree13 := Mod2RingGensAndRels(fail,3,R1degree13,G1degree13,true,13,GENNAMES[1]);;
+gap> [D1degree13.maxRelationDegree,
+>     Length(D1degree13.generators.classes),
+>     D1degree13.generatorDimensions,
+>     relationReducerTrace=[3..13],
+>     IsBound(D1degree13.relationsByDegree[13]),
+>     D1degree13.relations,
+>     D1degree13.bases];
+[ 13, 13, [ 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], true, true,
+  [ [ 2, [ [ [ 2, 0, 0 ] ], [ [ 0, 2, 0 ] ], [ [ 0, 0, 2 ] ] ] ] ],
+  [ [ [ 1, 0, 0 ], [ 0, 1, 0 ], [ 0, 0, 1 ] ],
+    [ [ 1, 1, 0 ], [ 1, 0, 1 ], [ 0, 1, 1 ] ],
+    [ [ 1, 1, 1 ] ], [  ] ] ]
+
+# The same untagged resolution may stop at any explicit cap supported by it.
+# Degree 2 has no generic reducer, and only available basis states are returned.
+gap> relationReducerTrace := [];; relationReducerStats := [];;
+gap> D1degree2 := Mod2RingGensAndRels(fail,3,R1degree13,G1degree13,true,2,GENNAMES[1]);;
+gap> [D1degree2.maxRelationDegree,
+>     Length(D1degree2.generators.classes),
+>     D1degree2.generatorDimensions,
+>     relationReducerTrace=[],
+>     IsBound(D1degree2.relationsByDegree[2]),
+>     D1degree2.relations,
+>     D1degree2.bases];
+[ 2, 13, [ 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], true, true,
+  [ [ 2, [ [ [ 2, 0, 0 ] ], [ [ 0, 2, 0 ] ], [ [ 0, 0, 2 ] ] ] ] ],
+  [ [ [ 1, 0, 0 ], [ 0, 1, 0 ], [ 0, 0, 1 ] ],
+    [ [ 1, 1, 0 ], [ 1, 0, 1 ], [ 0, 1, 1 ] ] ] ]
 
 gap> SGC_SolverCacheList := savedSolverCacheList;;
 gap> if relationObserverWasBound then SGC_RELATION_REDUCER_OBSERVER := relationSavedObserver; if relationObserverWasReadOnly then MakeReadOnlyGlobal("SGC_RELATION_REDUCER_OBSERVER"); fi; else UnbindGlobal("SGC_RELATION_REDUCER_OBSERVER"); fi;;
