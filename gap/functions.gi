@@ -147,7 +147,7 @@ local
 	ColMat, InvColMat,
 	RemoveRowsMat, InsertRowsList,
 	CycleToClass, ClassToCycle,
-	CobandCoc_GF2, CohomologyBasisMatrix,
+	CohomologyBasisMatrix,
 	i, j, k, x, sum;
 
 
@@ -222,7 +222,6 @@ return rec(
 fi;
 
 
-CobandCoc_GF2 := CobandCoc * Z(2);
 if cohdim > 0 then
     CohomologyBasisMatrix := CobandCoc{[kerdim-cohdim+1 .. kerdim]};
 fi;
@@ -230,7 +229,7 @@ fi;
 #Factor CobandCoc once and reuse for every CycleToClass call (the old code
 #re-eliminated the same matrix via SolutionMat on each call). CobandCoc has
 #independent rows, so the solution is unique and identical to SolutionMat's.
-if kerdim > 0 then
+if cohdim > 0 then
     CCsolver := SGC_SolverMod2(CobandCoc);
 fi;
 
@@ -241,8 +240,8 @@ local u;
 if cohdim = 0 then
 return [];
 fi;
-u:=GF2ToZ(CCsolver(v));
-return u{[kerdim-cohdim+1 .. kerdim]};
+u:=CCsolver(v){[kerdim-cohdim+1 .. kerdim]};
+return GF2ToZ(u);
 
 end;
 #####################################################################
@@ -277,21 +276,21 @@ end;
 #####################################################################
 #####################################################################
 
-Mod2CupProduct:=function(arg)
+Mod2CupProducts:=function(arg)
 local
-    R, u, v, p, q, P, Q, N,
+    R, u, vs, p, q, P, Q, N,
     uCocycle,
     vCocycle,
     uvCocycle,
     uChainMap,
     DimensionR,
-    i, w, x, sw;
+    products, v, ww, i, w, x, sw;
 
     ####################BEGIN TO READ THE INPUT##################
 R:=arg[1];
 DimensionR:=R!.dimension;
 u:=arg[2];
-v:=arg[3];
+vs:=arg[3];
 p:=arg[4];
 q:=arg[5];
 
@@ -312,22 +311,39 @@ fi;
     #####################FINISHED REAQDING THE INPUT#############
 
 uCocycle:=P.classToCocycle(u);
-vCocycle:=Q.classToCocycle(v);
 uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,p,q);
-
-
-uvCocycle:=[];
+ww:=[];
 for i in [1..DimensionR(p+q)] do
-w:=uChainMap([[i,1]]);
-sw:=0;
-    for x in w do
-    #sw:=sw+ SignInt(x[1])*vCocycle[AbsoluteValue(x[1])];
-        sw:=sw+ vCocycle[AbsoluteValue(x[1])];
-    od;
-uvCocycle[i]:=sw mod 2;
+    ww[i]:=uChainMap([[i,1]]);
 od;
+products:=[];
+for v in vs do
+    vCocycle:=Q.classToCocycle(v);
+    uvCocycle:=[];
+    for i in [1..DimensionR(p+q)] do
+        w:=ww[i];
+        sw:=0;
+        for x in w do
+            #sw:=sw+ SignInt(x[1])*vCocycle[AbsoluteValue(x[1])];
+            sw:=sw+ vCocycle[AbsoluteValue(x[1])];
+        od;
+        uvCocycle[i]:=sw mod 2;
+    od;
+    Add(products,N.cocycleToClass(uvCocycle));
+od;
+return products;
+end;
+#####################################################################
+#####################################################################
 
-return N.cocycleToClass(uvCocycle);
+#####################################################################
+#####################################################################
+
+Mod2CupProduct:=function(arg)
+local batchArgs;
+batchArgs:=ShallowCopy(arg);
+batchArgs[3]:=[arg[3]];
+return CallFuncList(Mod2CupProducts,batchArgs)[1];
 end;
 #####################################################################
 #####################################################################
@@ -352,14 +368,14 @@ end;
 # degree-k basis (CupBaseK/CupBaseKLett), skipping any that are already
 # expressible in the current basis. Factors the identical "append generators"
 # block that was repeated for k = 2,3,4,5,6. offset = #generators of degree < k.
-AppendGenuineGens:=function(CupBaseK, CupBaseKLett, GenK, GensLett, offset, degree)
+AppendGenuineGens:=function(SolverCache, CupBaseK, CupBaseKLett, GenK, GensLett, offset, degree)
 local iu, sol;
 for iu in [(offset+1)..(offset+Length(GenK))] do
     if CupBaseK = [] then
         Append(CupBaseK,[GenK[iu-offset]]);
         Append(CupBaseKLett,[GensLett[iu]]);
     else
-        sol :=SGC_CachedSolve(CupBaseK,GenK[iu-offset]);
+        sol :=SGC_CachedSolveIn(SolverCache,CupBaseK,GenK[iu-offset]);
         if sol = fail then
             Append(CupBaseK,[GenK[iu-offset]]);
             Append(CupBaseKLett,[GensLett[iu]]);
@@ -376,7 +392,7 @@ local
         R, n, GG, IT,
         Gens, GensBasis, GensBasis1ton, Cups, Cupped, cupped, CuppedBasis, spacedim,
         uCocycle, vCocycle, uvCocycle, ww, uChainMap,
-        sol, CB, TR,
+        sol, CB, CohBases,
         BasisP, BasisQ,
         i, j, p, q, u, v, ln, iu, iv, w, x, sw;
 
@@ -405,30 +421,26 @@ else
 fi;
 
 
-TR:=HomToIntegersModP(R,2);
-
-#####################################################################
-
-
 CB:=[];
 for p in [1..n] do
     CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);  #CR_Mod2CocyclesAndCoboundaries gives all the cocycles followed by all the coboundaries as vectors
 od;
 
+CohBases:=List([1..n],p->CohomologyBasis(List([1..CB[p].Mod2Cohomologydim],i->1)));
 
-GensBasis1ton :=[CohomologyBasis(List([1..Cohomology(TR,1)],i->1))];  # Record degree-1 generators  #Make an identity matrix, consisting of basis vectors for cocycles
+GensBasis1ton :=[CohBases[1]];  # Record degree-1 generators  #Make an identity matrix, consisting of basis vectors for cocycles
 
 
 for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
 
-    Cups:=CohomologyBasis(List([1..Cohomology(TR,j)],i->1));    #Make an identity matrix, consisting of basis vectors for cocycles
+    Cups:=CohBases[j];    #Make an identity matrix, consisting of basis vectors for cocycles
 
     Cupped :=[];
 
     for p in [QuoInt(j+1,2)..(j-1)] do  #QuoInt(j,2) is gap command for the usual Int(j/2)
         q:=j-p;
-        BasisP:=CohomologyBasis(List([1..Cohomology(TR,p)],i->1));
-        BasisQ:=CohomologyBasis(List([1..Cohomology(TR,q)],i->1));
+        BasisP:=CohBases[p];
+        BasisQ:=CohBases[q];
 
         iu :=1;
         for u in BasisP do
@@ -443,9 +455,9 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
             iv :=1;
             for v in BasisQ do
 
-                vCocycle:=CB[q].classToCocycle(v);
-
                 if ((p > q) or (p=q and iv>=iu)) then
+
+                    vCocycle:=CB[q].classToCocycle(v);
 
                     uvCocycle:=[];
                     for i in [1..(R!.dimension(j))] do
@@ -546,26 +558,105 @@ end;
 #####################################################################
 #####################################################################
 
+SGC_NewRelationReducer:=function(gensLett, genDegrees, relationsByDegree, degree)
+local monomials, vectorLength, monomialKeys, keyDictionary, monomialKey,
+      encode, span, relationProductCount, k, relDegree, m, relation, row,
+      T, i;
+monomials := SGC_MonomialsOfDegree(gensLett, genDegrees, degree);
+vectorLength := Length(monomials)+1;
+monomialKeys := [];
+monomialKey := function(term)
+local key, radix, j;
+    if Length(term) <> Length(genDegrees) then
+        Error("SGC_NewRelationReducer: term has wrong width");
+    fi;
+    key := 0;
+    radix := 1;
+    for j in [1..Length(term)] do
+        key := key + term[j]*radix;
+        radix := radix*(degree+1);
+    od;
+    return key;
+end;
+if Length(monomials) = 0 then
+    keyDictionary := fail;
+else
+    keyDictionary := NewDictionary(0,true);
+    for i in [1..Length(monomials)] do
+        monomialKeys[i] := monomialKey(monomials[i]);
+        AddDictionary(keyDictionary,monomialKeys[i],i);
+    od;
+fi;
+encode := function(terms)
+local row, term, pos;
+    row := List([1..vectorLength],x->0);
+    for term in terms do
+        if term*genDegrees <> degree then
+            Error("SGC_NewRelationReducer: term has wrong weighted degree");
+        fi;
+        if keyDictionary = fail then
+            Error("SGC_NewRelationReducer: no target monomial for term");
+        fi;
+        pos := LookupDictionary(keyDictionary,monomialKey(term));
+        if pos = fail then
+            Error("SGC_NewRelationReducer: no target monomial for term");
+        fi;
+        row[pos] := 1;
+    od;
+    return row;
+end;
+span := SGC_NewSpanTesterMod2(SGC_SparseMat(0,vectorLength));
+relationProductCount := 0;
+for k in [1..degree-2] do
+    relDegree := degree-k;
+    if relDegree <= Length(relationsByDegree)
+       and IsBound(relationsByDegree[relDegree]) then
+        for m in SGC_MonomialsOfDegree(gensLett,genDegrees,k) do
+            for relation in relationsByDegree[relDegree] do
+                row := encode(List(relation,term->m+term));
+                span.addIfIndependent(row);
+                relationProductCount := relationProductCount+1;
+            od;
+        od;
+    fi;
+od;
+T := rec(degree := degree, monomials := monomials, vectorLength := vectorLength,
+         relationProductCount := relationProductCount, rank := span.rank(),
+         encode := encode);
+T.contains := function(row)
+    return span.contains(row);
+end;
+T.addIfIndependent := function(row)
+local answer;
+    answer := span.addIfIndependent(row);
+    T.rank := span.rank();
+    return answer;
+end;
+return T;
+end;
+
+#####################################################################
+#####################################################################
+
 Mod2RingGensAndRels:=function(arg)
 local
-        R,n,GG,IT,Gen0,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,GensGAP6,spacedim,GenDimAll,GenDegAll,
-        Gens, GensLett, allGens, zeroH, Cupped, CupRelsLett, CupTemp, CupTempLett,
+        R,n,GG,IT,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,GensGAP6,spacedim,GenDimAll,GenDegAll,
+        Gens, GensLett, zeroH, Cupped, CupRelsLett, CupTemp, CupTempLett,
         CupBase2all,CupBase2,CupBase3,CupBase4,CupBase5,CupBase6,CupBase7,CupBase8,
         CupBase9,CupBase10,CupBase11,CupBase12,
         CupBase1Lett, CupBase2Lett,CupBase3Lett,CupBase4Lett,CupBase5Lett,CupBase6Lett,CupBase7Lett,CupBase8Lett,
         CupBase9Lett,CupBase10Lett,CupBase11Lett,CupBase12Lett,
         CupRel2Lett, CupRel3Lett, CupRel4Lett, CupRel5Lett, CupRel6Lett, CupRel7Lett, CupRel8Lett,
         CupRel9Lett, CupRel10Lett, CupRel11Lett, CupRel12Lett,
-        CupRelByDeg, PrepRelReduce, CupStep,
-        RelReduceLett, RelReduceMat, RelReduceVec, RelRedLen, solrelred,
+        CupRelByDeg, CupStep, RelReducer, SolverCache,
         cupped,M1,sum,row,BasisImaged2,cuppedRaw,CupBase6RawCobandCoc,CupBase6Raw,
         Lett1, Lett2, mono, IO,
         uCocycle, vCocycle, uvCocycle, uChainMap, ww,
-        sol, sol1, solrel, cc, CB, TR,
+        sol, sol1, solrel, cc, CB,
         BasisP, BasisQ, SmithRecord, IToPosition,
         returnData, maxRelationDegree, relations, generatorNames, ringData,
         #NonNegativeVec,
-        i,j,p,q,r,s,t,u,v,w,x,y,z, ln, rk, rk1, ip,iq,ir,is,it,iu,iv,iw,ix,iy,iz,sw;
+        i,j,p,q,r,s,t,u,v,w,x,y,z, ln, ip,iq,ir,is,it,iu,iv,iw,ix,iy,iz,sw;
 
 #Arguments: arg[1] = IT (# of space group); arg[2] = spacedim (2 or 3, default 3);
 #           arg[3] = R (resolution); arg[4] = Gens (generators);
@@ -631,7 +722,7 @@ Gen6:=[];
 #completes a basis of H^6 from classes outside the decomposable (cup-product) span.
 #CR_Mod2CocyclesAndCoboundaries(R,6) inside needs the degree-7 module, hence the
 #resolution-length guard (Category C resolutions are built to length 13 anyway).
-if IT = fail and Length(Gens) >= 6 then
+if Length(Gens) >= 6 and IsBound(Gens[6]) then
     Gen6 := Gens[6];
 elif (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
     GensGAP6 := Mod2RingGenerators(R,6,spacedim);
@@ -664,11 +755,8 @@ end;
 GensLett:=CohomologyBasis(List([1..(Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5)+Length(Gen6))],i->1));
 #GensLett records the powers, later to be used to convert generators/relations to letters.
 
-Gen0 := List([1..(Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5)+Length(Gen6))],i->0);
-
-allGens := Concatenation([Gen0],GensLett);   #computed once; GensLett/Gen0 do not change afterwards (replaces repeated rebuilds in the relation-reduction loops)
-
-TR:=HomToIntegersModP(R,2);            #Apply the Hom functor.
+SolverCache:=SGC_NewSolverCache();
+CupRelByDeg:=[];
 
 
 n:=Length(Size(R))-1;     #This is the highest degree at which the relations are calculated for groups No. <= 220.
@@ -691,11 +779,11 @@ CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
 od;
 
 #Cache the all-zero class vector at each degree once. The coboundary test below
-#("is u-cup-v zero in cohomology?") otherwise rebuilds List([1..Cohomology(TR,k)],x->0)
+#("is u-cup-v zero in cohomology?") otherwise rebuilds the zero vector.
 #on every cup product. Degrees 1..n are exactly those used (and computable) on every path.
 zeroH:=[];
 for p in [1..n] do
-    zeroH[p]:=List([1..Cohomology(TR,p)],x->0);
+    zeroH[p]:=List([1..CB[p].Mod2Cohomologydim],x->0);
 od;
 
 
@@ -712,6 +800,7 @@ CupRelsLett := [];
 CupBase2 := [];
 CupBase2Lett := [];
 CupRel2Lett := [];
+Cupped := List(Gen1,u->Mod2CupProducts(R,u,Gen1,1,1,CB[1],CB[1],CB[2]));
 
 
 iu :=1;                                           #First step: calculate u-cup-v for u != v
@@ -720,7 +809,7 @@ for u in Gen1 do
     for v in Gen1 do
         Lett1 := GensLett[iu]+GensLett[iv];
         if iv>iu then
-            cupped := Mod2CupProduct(R,u,v,1,1,CB[1],CB[1],CB[2]);
+            cupped := Cupped[iu][iv];
     
             if cupped = zeroH[2] then   #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
@@ -730,7 +819,7 @@ for u in Gen1 do
                     Append(CupBase2,[cupped]);
                     Append(CupBase2Lett,[Lett1]);
                 else
-                    sol :=SGC_CachedSolve(CupBase2,cupped);
+                    sol :=SGC_CachedSolveIn(SolverCache,CupBase2,cupped);
                     if sol = fail then                        #if u-cup-v is a genuine new cocycle
                         Append(CupBase2,[cupped]);
                         Append(CupBase2Lett,[Lett1]);
@@ -753,7 +842,7 @@ od;
 iu :=1;                                    #Second step: calculate u-cup-u
 for u in Gen1 do
     Lett1 := GensLett[iu]+GensLett[iu];
-    cupped := Mod2CupProduct(R,u,u,1,1,CB[1],CB[1],CB[2]);
+    cupped := Cupped[iu][iu];
     
         if cupped = zeroH[2] then   #if u-cup-u is a coboundary
             Append(CupRelsLett,[Lett1]);
@@ -763,7 +852,7 @@ for u in Gen1 do
                 Append(CupBase2,[cupped]);
                 Append(CupBase2Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase2,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase2,cupped);
                 if sol = fail then                                  #if u-cup-u is a genuine new cocycle
                     Append(CupBase2,[cupped]);
                     Append(CupBase2Lett,[Lett1]);
@@ -779,13 +868,14 @@ for u in Gen1 do
     iu := iu+1;
 od;
 
-AppendGenuineGens(CupBase2, CupBase2Lett, Gen2, GensLett, Length(Gen1), 2);
+AppendGenuineGens(SolverCache, CupBase2, CupBase2Lett, Gen2, GensLett, Length(Gen1), 2);
+CupRelByDeg[2] := CupRel2Lett;
 
 
-if Length(CupBase2Lett) = Cohomology(TR,2) then
-    Print("");#Print("dim(H^2)=", Cohomology(TR,2),", ");
+if Length(CupBase2Lett) = CB[2].Mod2Cohomologydim then
+    Print("");#Print("dim(H^2)=", CB[2].Mod2Cohomologydim,", ");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^2) = ", Length(CupBase2Lett) - Cohomology(TR,2),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^2) = ", Length(CupBase2Lett) - CB[2].Mod2Cohomologydim,"\n");
 fi;
 
 ##Begin printing the relations at deg 2:
@@ -802,33 +892,10 @@ CupBase3Lett :=[];
 CupRel3Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
-
-
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 3);
-
-#+1: keep one trailing always-zero column so RelReduceMat and the reduction
-#vectors are never zero-width, even when no monomial of this degree exists
-#(e.g. IT=198, whose only generator has degree 3). Same convention below and
-#in PrepRelReduce.
-RelRedLen := Length(RelReduceLett) + 1;
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-for u in CupBase1Lett do
-    for v in CupRel2Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-####
-#### End preparation for relation reduction
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,3);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 #Begins: degree-2 cup with degree-1-gen
@@ -836,10 +903,10 @@ od;
 #
 iu :=1;
 for u in CupBase2 do
+    Cupped := Mod2CupProducts(R,u,Gen1,2,1,CB[2],CB[1],CB[3]);
     iv :=1;
     for v in Gen1 do
-        
-        cupped :=Mod2CupProduct(R,u,v,2,1,CB[2],CB[1],CB[3]);      #then calculate u-cup-v
+        cupped :=Cupped[iv];      #then calculate u-cup-v
         Lett1 := CupBase2Lett[iu] + GensLett[iv];
                 
         ####
@@ -856,7 +923,7 @@ for u in CupBase2 do
                 Append(CupBase3,[cupped]);
                 Append(CupBase3Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase3,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase3,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase3,[cupped]);
                     Append(CupBase3Lett,[Lett1]);
@@ -873,29 +940,9 @@ for u in CupBase2 do
         ####
         if (Lett1 in CupBase3Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-            
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                solrelred := SGC_CachedSolve(RelReduceMat,RelReduceVec);
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
                 Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
                 Append(CupRel3Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
             fi;
         fi;
         ####
@@ -911,16 +958,17 @@ od;
 #Finished: degree-2 cup with degree-1-gen
 
 
-AppendGenuineGens(CupBase3, CupBase3Lett, Gen3, GensLett, Length(Gen1)+Length(Gen2), 3);
+AppendGenuineGens(SolverCache, CupBase3, CupBase3Lett, Gen3, GensLett, Length(Gen1)+Length(Gen2), 3);
+CupRelByDeg[3] := CupRel3Lett;
 
 
 #
 
 
-if Length(CupBase3Lett) = Cohomology(TR,3) then
-    Print("");#Print("dim(H^3)=", Cohomology(TR,3),", ");
+if Length(CupBase3Lett) = CB[3].Mod2Cohomologydim then
+    Print("");#Print("dim(H^3)=", CB[3].Mod2Cohomologydim,", ");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^3) = ", Length(CupBase3Lett) - Cohomology(TR,3),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^3) = ", Length(CupBase3Lett) - CB[3].Mod2Cohomologydim,"\n");
 fi;
 
 
@@ -937,40 +985,10 @@ CupBase4Lett :=[];
 CupRel4Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
-
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 4);
-RelRedLen := Length(RelReduceLett) + 1;   #+1: trailing zero column, see r=3
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-for u in CupBase1Lett do
-    for v in CupRel3Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        if (p+q)*GenDegAll = 2 then
-            for v in CupRel2Lett do
-                RelReduceVec := List([1..RelRedLen],x->0);
-                for w in v do
-                    RelReduceVec[Position(RelReduceLett,p+q+w)] := 1;
-                od;
-                Append(RelReduceMat,[RelReduceVec]);
-            od;
-        fi;
-    od;
-od;
-####
-#### End preparation for relation reduction
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,4);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 #Step-1 begins here: degree-3 cup with degree-1-gen
@@ -978,10 +996,10 @@ od;
 #
 iu :=1;
 for u in CupBase3 do
+    Cupped := Mod2CupProducts(R,u,Gen1,3,1,CB[3],CB[1],CB[4]);
     iv :=1;
     for v in Gen1 do
-
-        cupped :=Mod2CupProduct(R,u,v,3,1,CB[3],CB[1],CB[4]);      #then calculate u-cup-v
+        cupped :=Cupped[iv];      #then calculate u-cup-v
         Lett1 := CupBase3Lett[iu] + GensLett[iv];
         
         ####
@@ -998,7 +1016,7 @@ for u in CupBase3 do
             Append(CupBase4,[cupped]);
             Append(CupBase4Lett,[Lett1]);
         else
-            sol :=SGC_CachedSolve(CupBase4,cupped);
+            sol :=SGC_CachedSolveIn(SolverCache,CupBase4,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase4,[cupped]);
                 Append(CupBase4Lett,[Lett1]);
@@ -1014,28 +1032,9 @@ for u in CupBase3 do
         ####
         if (Lett1 in CupBase4Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                solrelred := SGC_CachedSolve(RelReduceMat,RelReduceVec);
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
                 Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
                 Append(CupRel4Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
             fi;
         fi;
         ####
@@ -1073,7 +1072,7 @@ for u in Gen2 do
                 Append(CupBase4,[cupped]);
                 Append(CupBase4Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase4,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase4,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase4,[cupped]);
                     Append(CupBase4Lett,[Lett1]);
@@ -1094,13 +1093,14 @@ od;
 #
 #Step-2 finished: degree-2-gen cup with degree-2-gen
 
-AppendGenuineGens(CupBase4, CupBase4Lett, Gen4, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3), 4);
+AppendGenuineGens(SolverCache, CupBase4, CupBase4Lett, Gen4, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3), 4);
+CupRelByDeg[4] := CupRel4Lett;
 
 
-if Length(CupBase4Lett) = Cohomology(TR,4) then
-    Print("");#Print("dim(H^4)=", Cohomology(TR,4),", ");
+if Length(CupBase4Lett) = CB[4].Mod2Cohomologydim then
+    Print("");#Print("dim(H^4)=", CB[4].Mod2Cohomologydim,", ");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^4) = ", Length(CupBase4Lett) - Cohomology(TR,4),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^4) = ", Length(CupBase4Lett) - CB[4].Mod2Cohomologydim,"\n");
 fi;
 
 
@@ -1117,57 +1117,10 @@ CupBase5Lett :=[];
 CupRel5Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
-
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 5);
-RelRedLen := Length(RelReduceLett) + 1;   #+1: trailing zero column, see r=3
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-for u in CupBase1Lett do
-    for v in CupRel4Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        if (p+q)*GenDegAll = 2 then
-            for v in CupRel3Lett do
-                RelReduceVec := List([1..RelRedLen],x->0);
-                for w in v do
-                    RelReduceVec[Position(RelReduceLett,p+q+w)] := 1;
-                od;
-                Append(RelReduceMat,[RelReduceVec]);
-            od;
-        fi;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            if (p+q+r)*GenDegAll = 3 then
-                for v in CupRel2Lett do
-                     RelReduceVec := List([1..RelRedLen],x->0);
-                    for w in v do
-                        RelReduceVec[Position(RelReduceLett,p+q+r+w)] := 1;
-                    od;
-                    Append(RelReduceMat,[RelReduceVec]);
-                od;
-            fi;
-        od;
-    od;
-od;
-####
-#### End preparation for relation reduction
-
-rk:=SGC_RankMod2(RelReduceMat);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,5);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 #Step-1 begins here: degree-4 cup with degree-1-gen
@@ -1225,7 +1178,7 @@ for u in CupBase4 do
             Append(CupBase5,[cupped]);
             Append(CupBase5Lett,[Lett1]);
         else
-            sol :=SGC_CachedSolve(CupBase5,cupped);
+            sol :=SGC_CachedSolveIn(SolverCache,CupBase5,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase5,[cupped]);
                 Append(CupBase5Lett,[Lett1]);
@@ -1240,33 +1193,9 @@ for u in CupBase4 do
         #### Start: determine whether u-cup-v gives a new relation
         ####
         if (Lett1 in CupBase5Lett) = false then
-                    
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
                 Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
                 Append(CupRel5Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
             fi;
         fi;
         ####
@@ -1331,7 +1260,7 @@ for u in Gen3 do
             Append(CupBase5,[cupped]);
             Append(CupBase5Lett,[Lett1]);
         else
-            sol :=SGC_CachedSolve(CupBase5,cupped);
+            sol :=SGC_CachedSolveIn(SolverCache,CupBase5,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase5,[cupped]);
                 Append(CupBase5Lett,[Lett1]);
@@ -1346,33 +1275,9 @@ for u in Gen3 do
         #### Start: determine whether u-cup-v gives a new relation
         ####
         if (Lett1 in CupBase5Lett) = false then
-                    
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
                 Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
                 Append(CupRel5Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
             fi;
         fi;
         ####
@@ -1387,16 +1292,17 @@ od;
 #Step-2 finished: degree-3-gen cup with degree-2-gen
 
 
-AppendGenuineGens(CupBase5, CupBase5Lett, Gen5, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4), 5);
+AppendGenuineGens(SolverCache, CupBase5, CupBase5Lett, Gen5, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4), 5);
+CupRelByDeg[5] := CupRel5Lett;
 
 
 #
 
 
-if Length(CupBase5Lett) = Cohomology(TR,5) then
-    Print("");#Print("dim(H^5)=", Cohomology(TR,5),", ");
+if Length(CupBase5Lett) = CB[5].Mod2Cohomologydim then
+    Print("");#Print("dim(H^5)=", CB[5].Mod2Cohomologydim,", ");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^5) = ", Length(CupBase5Lett) - Cohomology(TR,5),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^5) = ", Length(CupBase5Lett) - CB[5].Mod2Cohomologydim,"\n");
 fi;
 
 
@@ -1413,8 +1319,6 @@ CupBase6Lett :=[];
 CupRel6Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
 M1:=[];
 CupBase6Raw:=[];
 
@@ -1453,77 +1357,10 @@ fi;
 #Above ends the "Raw Method" for the degree 6 relations for groups 221-230, part1
 
 
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 6);
-RelRedLen := Length(RelReduceLett) + 1;   #+1: trailing zero column, see r=3
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-
-for u in CupBase1Lett do
-    for v in CupRel5Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-
-
-for p in allGens do
-    for q in allGens do
-        if (p+q)*GenDegAll = 2 then
-            for v in CupRel4Lett do
-                RelReduceVec := List([1..RelRedLen],x->0);
-                for w in v do
-                    RelReduceVec[Position(RelReduceLett,p+q+w)] := 1;
-                od;
-                Append(RelReduceMat,[RelReduceVec]);
-            od;
-        fi;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            if (p+q+r)*GenDegAll = 3 then
-                for v in CupRel3Lett do
-                    RelReduceVec := List([1..RelRedLen],x->0);
-                    for w in v do
-                        RelReduceVec[Position(RelReduceLett,p+q+r+w)] := 1;
-                    od;
-                    Append(RelReduceMat,[RelReduceVec]);
-                od;
-            fi;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                if (p+q+r+s)*GenDegAll = 4 then
-                    for v in CupRel2Lett do
-                        RelReduceVec := List([1..RelRedLen],x->0);
-                        for w in v do
-                            RelReduceVec[Position(RelReduceLett,p+q+r+s+w)] := 1;
-                        od;
-                        Append(RelReduceMat,[RelReduceVec]);
-                    od;
-                fi;
-            od;
-        od;
-    od;
-od;
-
-
-####
-#### End preparation for relation reduction
-
-
-rk:=SGC_RankMod2(RelReduceMat);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,6);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 # Below is the good method when resolution at degree 7 has been constructed:
@@ -1582,7 +1419,7 @@ for u in CupBase5 do
             Append(CupBase6,[cupped]);
             Append(CupBase6Lett,[Lett1]);
         else
-            sol :=SGC_CachedSolve(CupBase6,cupped);
+            sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
@@ -1598,32 +1435,9 @@ for u in CupBase5 do
         ####
         if (Lett1 in CupBase6Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel6Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                Append(CupRelsLett,[Lett1]);
+                Append(CupRel6Lett,[solrel]);
             fi;
         fi;
         ####
@@ -1690,7 +1504,7 @@ for u in CupBase4 do
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase6,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6,[cupped]);
                     Append(CupBase6Lett,[Lett1]);
@@ -1706,32 +1520,9 @@ for u in CupBase4 do
             ####
             if (Lett1 in CupBase6Lett) = false then
                
-                #### begin checking whether the relation is reducible from lower degree ones
-                ####
-                RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-                for w in solrel do
-                    solrelred := Position(RelReduceLett,w);
-                            
-                    if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                        break;
-                    else
-                        RelReduceVec[solrelred] := 1;
-                    fi;
-                od;
-                if (solrelred = fail) = false then
-                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                    if (rk = rk1) = false then
-                        solrelred :=fail;
-                    fi;
-                fi;
-                ####
-                #### end checking whether the relation is reducible from lower degree ones
-
-                if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new     relation
-                    Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                    Append(CupRel6Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    Append(RelReduceMat,[RelReduceVec]);
-                    rk := rk1;
+                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                    Append(CupRelsLett,[Lett1]);
+                    Append(CupRel6Lett,[solrel]);
                 fi;
             fi;
             ####
@@ -1794,7 +1585,7 @@ for u in Gen3 do
                 Append(CupBase6,[cupped]);
                 Append(CupBase6Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase6,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase6,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6,[cupped]);
                     Append(CupBase6Lett,[Lett1]);
@@ -1816,13 +1607,13 @@ od;
 #Step-3 finished: degree-3-gen cup with degree-3-gen
 
 
-AppendGenuineGens(CupBase6, CupBase6Lett, Gen6, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5), 6);
+AppendGenuineGens(SolverCache, CupBase6, CupBase6Lett, Gen6, GensLett, Length(Gen1)+Length(Gen2)+Length(Gen3)+Length(Gen4)+Length(Gen5), 6);
 
 
-if Length(CupBase6) = Cohomology(TR,6) then
-    Print("");#Print("dim(H^6)=", Cohomology(TR,6),".\n");
+if Length(CupBase6) = CB[6].Mod2Cohomologydim then
+    Print("");#Print("dim(H^6)=", CB[6].Mod2Cohomologydim,".\n");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^6) = ", Length(CupBase6) - Cohomology(TR,6),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^6) = ", Length(CupBase6) - CB[6].Mod2Cohomologydim,"\n");
 fi;
 
 ###########################
@@ -1876,7 +1667,7 @@ for u in CupBase5 do
         #### Start: determine whether u-cup-v goes to the basis
         ####
         solrel := [];
-        if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
+        if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
             solrel := [Lett1];
             
         elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1884,7 +1675,7 @@ for u in CupBase5 do
             Append(CupBase6Lett,[Lett1]);
             Append(CupBase6RawCobandCoc,[cuppedRaw]);
         else
-            sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
+            sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
             if sol = fail then                  #if u-cup-v is a genuine new cocycle
                 Append(CupBase6Raw,[cuppedRaw]);
                 Append(CupBase6Lett,[Lett1]);
@@ -1902,32 +1693,9 @@ for u in CupBase5 do
         ####
         if (Lett1 in CupBase6Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel6Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                Append(CupRelsLett,[Lett1]);
+                Append(CupRel6Lett,[solrel]);
             fi;
         fi;
         ####
@@ -1987,7 +1755,7 @@ for u in CupBase4 do
             #### Start: determine whether u-cup-v goes to the basis
             ####
             solrel := [];
-            if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
+            if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
                 solrel := [Lett1];
             
             elif CupBase6Raw = [] then        #if no basis yet then push in the genuine cocycle u-cup-v to basis
@@ -1995,7 +1763,7 @@ for u in CupBase4 do
                 Append(CupBase6Lett,[Lett1]);
                 Append(CupBase6RawCobandCoc,[cuppedRaw]);
             else
-                sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6Raw,[cuppedRaw]);
                     Append(CupBase6Lett,[Lett1]);
@@ -2013,32 +1781,9 @@ for u in CupBase4 do
             ####
             if (Lett1 in CupBase6Lett) = false then
                
-                #### begin checking whether the relation is reducible from lower degree ones
-                ####
-                RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-                for w in solrel do
-                    solrelred := Position(RelReduceLett,w);
-                            
-                    if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                        break;
-                    else
-                        RelReduceVec[solrelred] := 1;
-                    fi;
-                od;
-                if (solrelred = fail) = false then
-                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                    if (rk = rk1) = false then
-                        solrelred :=fail;
-                    fi;
-                fi;
-                ####
-                #### end checking whether the relation is reducible from lower degree ones
-
-                if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new     relation
-                    Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                    Append(CupRel6Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    Append(RelReduceMat,[RelReduceVec]);
-                    rk := rk1;
+                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                    Append(CupRelsLett,[Lett1]);
+                    Append(CupRel6Lett,[solrel]);
                 fi;
             fi;
             ####
@@ -2096,7 +1841,7 @@ for u in Gen3 do
             
             #### Start:  determine whether u-cup-v goes to the basis
             ####
-            if (SGC_CachedSolve(BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
+            if (SGC_CachedSolveIn(SolverCache,BasisImaged2,cuppedRaw) = fail) = false then        #if u-cup-v is a coboundary
                 Append(CupRelsLett,[Lett1]);
                 Append(CupRel6Lett,[[Lett1]]);
             
@@ -2105,7 +1850,7 @@ for u in Gen3 do
                 Append(CupBase6Lett,[Lett1]);
                 Append(CupBase6RawCobandCoc,[cuppedRaw]);
             else
-                sol :=SGC_CachedSolve(CupBase6RawCobandCoc,cuppedRaw);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase6RawCobandCoc,cuppedRaw);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase6Raw,[cuppedRaw]);
                     Append(CupBase6Lett,[Lett1]);
@@ -2137,6 +1882,7 @@ fi;
 #
 #         ##Above ends the "Raw Method" for the degree 6 relations for groups 221-230, part2
 
+CupRelByDeg[6] := CupRel6Lett;
 
 ##Begin printing the relations at deg 6:
 if Length(CupRel6Lett) >0 then
@@ -2159,99 +1905,10 @@ CupBase7Lett :=[];
 CupRel7Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
-
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 7);
-RelRedLen := Length(RelReduceLett) + 1;   #+1: trailing zero column, see r=3
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-
-for u in CupBase1Lett do
-    for v in CupRel6Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-
-
-for p in allGens do
-    for q in allGens do
-        if (p+q)*GenDegAll = 2 then
-            for v in CupRel5Lett do
-                RelReduceVec := List([1..RelRedLen],x->0);
-                for w in v do
-                    RelReduceVec[Position(RelReduceLett,p+q+w)] := 1;
-                od;
-                Append(RelReduceMat,[RelReduceVec]);
-            od;
-        fi;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            if (p+q+r)*GenDegAll = 3 then
-                for v in CupRel4Lett do
-                    RelReduceVec := List([1..RelRedLen],x->0);
-                    for w in v do
-                        RelReduceVec[Position(RelReduceLett,p+q+r+w)] := 1;
-                    od;
-                    Append(RelReduceMat,[RelReduceVec]);
-                od;
-            fi;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                if (p+q+r+s)*GenDegAll = 4 then
-                    for v in CupRel3Lett do
-                        RelReduceVec := List([1..RelRedLen],x->0);
-                        for w in v do
-                            RelReduceVec[Position(RelReduceLett,p+q+r+s+w)] := 1;
-                        od;
-                        Append(RelReduceMat,[RelReduceVec]);
-                    od;
-                fi;
-            od;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                for t in allGens do
-                    if (p+q+r+s+t)*GenDegAll = 5 then
-                        for v in CupRel2Lett do
-                            RelReduceVec := List([1..RelRedLen],x->0);
-                            for w in v do
-                                RelReduceVec[Position(RelReduceLett,p+q+r+s+t+w)] := 1;
-                            od;
-                            Append(RelReduceMat,[RelReduceVec]);
-                        od;
-                    fi;
-                od;
-            od;
-        od;
-    od;
-od;
-
-
-####
-#### End preparation for relation reduction
-
-
-rk:=SGC_RankMod2(RelReduceMat);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,7);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 #Step-1 begins here: degree-6 cup with degree-1-gen
@@ -2305,7 +1962,7 @@ for u in CupBase6 do
                 Append(CupBase7,[cupped]);
                 Append(CupBase7Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase7,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
@@ -2322,32 +1979,9 @@ for u in CupBase6 do
         ####
         if (Lett1 in CupBase7Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel7Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                Append(CupRelsLett,[Lett1]);
+                Append(CupRel7Lett,[solrel]);
             fi;
         fi;
         ####
@@ -2415,7 +2049,7 @@ for u in CupBase5 do
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
                 else
-                    sol :=SGC_CachedSolve(CupBase7,cupped);
+                    sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
                     if sol = fail then                  #if u-cup-v is a genuine new cocycle
                         Append(CupBase7,[cupped]);
                         Append(CupBase7Lett,[Lett1]);
@@ -2432,32 +2066,9 @@ for u in CupBase5 do
             ####
             if (Lett1 in CupBase7Lett) = false then
                
-                #### begin checking whether the relation is reducible from lower degree ones
-                ####
-                RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-                for w in solrel do
-                    solrelred := Position(RelReduceLett,w);
-                            
-                    if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                        break;
-                    else
-                        RelReduceVec[solrelred] := 1;
-                    fi;
-                od;
-                if (solrelred = fail) = false then
-                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                    if (rk = rk1) = false then
-                        solrelred :=fail;
-                    fi;
-                fi;
-                ####
-                #### end checking whether the relation is reducible from lower degree ones
-
-                if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new     relation
-                    Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                    Append(CupRel7Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    Append(RelReduceMat,[RelReduceVec]);
-                    rk := rk1;
+                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                    Append(CupRelsLett,[Lett1]);
+                    Append(CupRel7Lett,[solrel]);
                 fi;
             fi;
             ####
@@ -2520,7 +2131,7 @@ for u in Gen4 do
                 Append(CupBase7,[cupped]);
                 Append(CupBase7Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase7,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase7,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase7,[cupped]);
                     Append(CupBase7Lett,[Lett1]);
@@ -2544,11 +2155,12 @@ od;
 #Note that there's no Gen7!!
 
 
-if Length(CupBase7) = Cohomology(TR,7) then
-    Print("");#Print("dim(H^7)=", Cohomology(TR,7),".\n");
+if Length(CupBase7) = CB[7].Mod2Cohomologydim then
+    Print("");#Print("dim(H^7)=", CB[7].Mod2Cohomologydim,".\n");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^7) = ", Length(CupBase7) - Cohomology(TR,7),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^7) = ", Length(CupBase7) - CB[7].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[7] := CupRel7Lett;
 
 
 ####################### r = 8 ##########################
@@ -2558,122 +2170,10 @@ CupBase8Lett :=[];
 CupRel8Lett := [];
 CupTemp := [];
 CupTempLett := [];
-RelReduceLett := [];
-RelReduceMat  := [];
-
-#### Begin preparation for relation reduction
-####
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, 8);
-RelRedLen := Length(RelReduceLett) + 1;   #+1: trailing zero column, see r=3
-
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-
-
-for u in CupBase1Lett do
-    for v in CupRel7Lett do
-        RelReduceVec := List([1..RelRedLen],x->0);
-        for w in v do
-            RelReduceVec[Position(RelReduceLett,u+w)] := 1;
-        od;
-        Append(RelReduceMat,[RelReduceVec]);
-    od;
-od;
-
-
-for p in allGens do
-    for q in allGens do
-        if (p+q)*GenDegAll = 2 then
-            for v in CupRel6Lett do
-                RelReduceVec := List([1..RelRedLen],x->0);
-                for w in v do
-                    RelReduceVec[Position(RelReduceLett,p+q+w)] := 1;
-                od;
-                Append(RelReduceMat,[RelReduceVec]);
-            od;
-        fi;
-    od;
-od;
-
-
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            if (p+q+r)*GenDegAll = 3 then
-                for v in CupRel5Lett do
-                    RelReduceVec := List([1..RelRedLen],x->0);
-                    for w in v do
-                        RelReduceVec[Position(RelReduceLett,p+q+r+w)] := 1;
-                    od;
-                    Append(RelReduceMat,[RelReduceVec]);
-                od;
-            fi;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                if (p+q+r+s)*GenDegAll = 4 then
-                    for v in CupRel4Lett do
-                        RelReduceVec := List([1..RelRedLen],x->0);
-                        for w in v do
-                            RelReduceVec[Position(RelReduceLett,p+q+r+s+w)] := 1;
-                        od;
-                        Append(RelReduceMat,[RelReduceVec]);
-                    od;
-                fi;
-            od;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                for t in allGens do
-                    if (p+q+r+s+t)*GenDegAll = 5 then
-                        for v in CupRel3Lett do
-                            RelReduceVec := List([1..RelRedLen],x->0);
-                            for w in v do
-                                RelReduceVec[Position(RelReduceLett,p+q+r+s+t+w)] := 1;
-                            od;
-                            Append(RelReduceMat,[RelReduceVec]);
-                        od;
-                    fi;
-                od;
-            od;
-        od;
-    od;
-od;
-for p in allGens do
-    for q in allGens do
-        for r in allGens do
-            for s in allGens do
-                for t in allGens do
-                    for u in allGens do
-                        if (p+q+r+s+t+u)*GenDegAll = 6 then
-                            for v in CupRel2Lett do
-                                RelReduceVec := List([1..RelRedLen],x->0);
-                                for w in v do
-                                    RelReduceVec[Position(RelReduceLett,p+q+r+s+t+u+w)] := 1;
-                                od;
-                                Append(RelReduceMat,[RelReduceVec]);
-                            od;
-                        fi;
-                    od;
-                od;
-            od;
-        od;
-    od;
-od;
-
-
-####
-#### End preparation for relation reduction
-
-
-rk:=SGC_RankMod2(RelReduceMat);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,8);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 
 
 #Step-1 begins here: degree-7 cup with degree-1-gen
@@ -2727,7 +2227,7 @@ for u in CupBase7 do
                 Append(CupBase8,[cupped]);
                 Append(CupBase8Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase8,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);
@@ -2744,32 +2244,9 @@ for u in CupBase7 do
         ####
         if (Lett1 in CupBase8Lett) = false then
                     
-            #### begin checking whether the relation is reducible from lower degree ones
-            ####
-            RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-            for w in solrel do
-                solrelred := Position(RelReduceLett,w);
-                            
-                if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                    break;
-                else
-                    RelReduceVec[solrelred] := 1;
-                fi;
-            od;
-            if (solrelred = fail) = false then
-                if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                if (rk = rk1) = false then
-                    solrelred :=fail;
-                fi;
-            fi;
-            ####
-            #### end checking whether the relation is reducible from lower degree ones
-
-            if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
-                Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                Append(CupRel8Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                Append(RelReduceMat,[RelReduceVec]);
-                rk := rk1;
+            if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                Append(CupRelsLett,[Lett1]);
+                Append(CupRel8Lett,[solrel]);
             fi;
         fi;
         ####
@@ -2837,7 +2314,7 @@ for u in CupBase6 do
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);
                 else
-                    sol :=SGC_CachedSolve(CupBase8,cupped);
+                    sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
                     if sol = fail then                  #if u-cup-v is a genuine new cocycle
                         Append(CupBase8,[cupped]);
                         Append(CupBase8Lett,[Lett1]);
@@ -2854,32 +2331,9 @@ for u in CupBase6 do
             ####
             if (Lett1 in CupBase8Lett) = false then
                
-                #### begin checking whether the relation is reducible from lower degree ones
-                ####
-                RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-                for w in solrel do
-                    solrelred := Position(RelReduceLett,w);
-                            
-                    if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                        break;
-                    else
-                        RelReduceVec[solrelred] := 1;
-                    fi;
-                od;
-                if (solrelred = fail) = false then
-                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rk1:=rk; else rk1:=rk+1; fi;
-                    if (rk = rk1) = false then
-                        solrelred :=fail;
-                    fi;
-                fi;
-                ####
-                #### end checking whether the relation is reducible from lower degree ones
-
-                if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new     relation
-                    Append(CupRelsLett,[Lett1]);  #Record the letter that appears on the LHS of the relation equation
-                    Append(CupRel8Lett,[solrel]); #Record the letters that appear in the relation equation. Note that all but the first letters are in the cohomology basis (that we choose).
-                    Append(RelReduceMat,[RelReduceVec]);
-                    rk := rk1;
+                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
+                    Append(CupRelsLett,[Lett1]);
+                    Append(CupRel8Lett,[solrel]);
                 fi;
             fi;
             ####
@@ -2942,7 +2396,7 @@ for u in Gen4 do
                 Append(CupBase8,[cupped]);
                 Append(CupBase8Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase8,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase8,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase8,[cupped]);
                     Append(CupBase8Lett,[Lett1]);
@@ -2966,11 +2420,12 @@ od;
 #Note that there's no Gen8!!
 
 
-if Length(CupBase8) = Cohomology(TR,8) then
-    Print("");#Print("dim(H^8)=", Cohomology(TR,8),".\n");
+if Length(CupBase8) = CB[8].Mod2Cohomologydim then
+    Print("");#Print("dim(H^8)=", CB[8].Mod2Cohomologydim,".\n");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^8) = ", Length(CupBase8) - Cohomology(TR,8),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^8) = ", Length(CupBase8) - CB[8].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[8] := CupRel8Lett;
 
 
 fi;
@@ -2995,39 +2450,6 @@ fi;
 
 if n >= 12 then
 
-#CupRelByDeg[d] aliases the (mutable) degree-d relation list, so the
-#relation-reduction preparation can address CupRel(d)Lett by degree.
-CupRelByDeg := [];
-CupRelByDeg[2] := CupRel2Lett;
-CupRelByDeg[3] := CupRel3Lett;
-CupRelByDeg[4] := CupRel4Lett;
-CupRelByDeg[5] := CupRel5Lett;
-CupRelByDeg[6] := CupRel6Lett;
-CupRelByDeg[7] := CupRel7Lett;
-CupRelByDeg[8] := CupRel8Lett;
-
-#Rebuild RelReduceLett/RelReduceMat/RelRedLen/rk for relation degree degr:
-#all degree-degr monomials, and one row per (degree-k monomial) * (degree-(degr-k)
-#relation) product, exactly as in the r<=8 preparation blocks.
-PrepRelReduce := function(degr)
-local k, m, v, w, vec;
-RelReduceLett := SGC_MonomialsOfDegree(GensLett, GenDegAll, degr);
-RelRedLen := Length(RelReduceLett)+1;   #+1: trailing zero column, see r=3
-RelReduceMat := [List([1..RelRedLen],x->0)];         #This makes sure that RelReduceMat is not an empty matrix
-for k in [1..degr-2] do
-    for m in SGC_MonomialsOfDegree(GensLett, GenDegAll, k) do
-        for v in CupRelByDeg[degr-k] do
-            vec := List([1..RelRedLen],x->0);
-            for w in v do
-                vec[Position(RelReduceLett,m+w)] := 1;
-            od;
-            Append(RelReduceMat,[vec]);
-        od;
-    od;
-od;
-rk := SGC_RankMod2(RelReduceMat);
-end;
-
 #One relation-search Step (the r=7/r=8 Step-1/2/3 pattern, parameterized):
 #cup every element of CupBaseA (degree dega, restricted so its first
 #restrictWidth letter components vanish; restrictWidth 0 means unrestricted)
@@ -3036,7 +2458,7 @@ end;
 #classes, and record relations that are not reducible from lower degrees.
 CupStep := function(CupBaseA, CupBaseALett, dega, GenB, offB, degb, restrictWidth, CupBaseR, CupBaseRLett, CupRelRLett, degr)
 local iu, iv, i, u, v, w, x, sw, uCocycle, uChainMap, ww, vCocycle, uvCocycle,
-      cupped, Lett1, solrel, sol, solrelred, RelReduceVec, rknew;
+      cupped, Lett1, solrel, sol;
 iu := 1;
 for u in CupBaseA do
     if restrictWidth = 0 or List([1..restrictWidth],x->CupBaseALett[iu][x]) = List([1..restrictWidth],x->0) then
@@ -3076,7 +2498,7 @@ for u in CupBaseA do
                     Append(CupBaseR,[cupped]);
                     Append(CupBaseRLett,[Lett1]);
                 else
-                    sol :=SGC_CachedSolve(CupBaseR,cupped);
+                    sol :=SGC_CachedSolveIn(SolverCache,CupBaseR,cupped);
                     if sol = fail then                  #if u-cup-v is a genuine new cocycle
                         Append(CupBaseR,[cupped]);
                         Append(CupBaseRLett,[Lett1]);
@@ -3089,26 +2511,9 @@ for u in CupBaseA do
 
             #### Start: determine whether u-cup-v gives a new relation
             if (Lett1 in CupBaseRLett) = false then
-                RelReduceVec := List([1..RelRedLen],x->0); #check whether this relation is reducible from lower ones
-                for w in solrel do
-                    solrelred := Position(RelReduceLett,w);
-                    if solrelred = fail then      #if this relation contains new terms then we find a new relation
-                        break;
-                    else
-                        RelReduceVec[solrelred] := 1;
-                    fi;
-                od;
-                if (solrelred = fail) = false then
-                    if SGC_CachedSolve(RelReduceMat,RelReduceVec) <> fail then rknew:=rk; else rknew:=rk+1; fi;
-                    if (rk = rknew) = false then
-                        solrelred :=fail;
-                    fi;
-                fi;
-                if solrelred = fail then          #if not reducible from lower degree ones, then we have found a new relation
+                if RelReducer.addIfIndependent(RelReducer.encode(solrel)) then
                     Append(CupRelsLett,[Lett1]);
                     Append(CupRelRLett,[solrel]);
-                    Append(RelReduceMat,[RelReduceVec]);
-                    rk := rknew;
                 fi;
             fi;
             #### End: determine whether u-cup-v gives a new relation
@@ -3125,9 +2530,10 @@ end;
 CupBase9 :=[];
 CupBase9Lett :=[];
 CupRel9Lett := [];
-CupRelByDeg[9] := CupRel9Lett;
-
-PrepRelReduce(9);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,9);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 #Step 1: degree-8 basis cup with degree-1 generators
 CupStep(CupBase8, CupBase8Lett, 8, Gen1, 0, 1, 0, CupBase9, CupBase9Lett, CupRel9Lett, 9);
 #Step 2: degree-7 basis without Gen1 factors cup with degree-2 generators
@@ -3137,60 +2543,66 @@ CupStep(CupBase6, CupBase6Lett, 6, Gen3, Length(Gen1)+Length(Gen2), 3, Length(Ge
 
 #Note that there's no Gen9!!
 
-if Length(CupBase9) = Cohomology(TR,9) then
+if Length(CupBase9) = CB[9].Mod2Cohomologydim then
     Print("");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^9) = ", Length(CupBase9) - Cohomology(TR,9),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^9) = ", Length(CupBase9) - CB[9].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[9] := CupRel9Lett;
 
 ####################### r = 10 #########################
 
 CupBase10 :=[];
 CupBase10Lett :=[];
 CupRel10Lett := [];
-CupRelByDeg[10] := CupRel10Lett;
-
-PrepRelReduce(10);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,10);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 #Step 1: degree-9 basis cup with degree-1 generators
 CupStep(CupBase9, CupBase9Lett, 9, Gen1, 0, 1, 0, CupBase10, CupBase10Lett, CupRel10Lett, 10);
 #Step 2: degree-8 basis without Gen1 factors cup with degree-2 generators
 CupStep(CupBase8, CupBase8Lett, 8, Gen2, Length(Gen1), 2, Length(Gen1), CupBase10, CupBase10Lett, CupRel10Lett, 10);
 #No Step 3: degree 7 is not a multiple of 3, so no Gen3/Gen6-only monomial has degree 7.
 
-if Length(CupBase10) = Cohomology(TR,10) then
+if Length(CupBase10) = CB[10].Mod2Cohomologydim then
     Print("");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^10) = ", Length(CupBase10) - Cohomology(TR,10),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^10) = ", Length(CupBase10) - CB[10].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[10] := CupRel10Lett;
 
 ####################### r = 11 #########################
 
 CupBase11 :=[];
 CupBase11Lett :=[];
 CupRel11Lett := [];
-CupRelByDeg[11] := CupRel11Lett;
-
-PrepRelReduce(11);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,11);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 #Step 1: degree-10 basis cup with degree-1 generators
 CupStep(CupBase10, CupBase10Lett, 10, Gen1, 0, 1, 0, CupBase11, CupBase11Lett, CupRel11Lett, 11);
 #Step 2: degree-9 basis without Gen1 factors cup with degree-2 generators
 CupStep(CupBase9, CupBase9Lett, 9, Gen2, Length(Gen1), 2, Length(Gen1), CupBase11, CupBase11Lett, CupRel11Lett, 11);
 #No Step 3: degree 8 is not a multiple of 3, so no Gen3/Gen6-only monomial has degree 8.
 
-if Length(CupBase11) = Cohomology(TR,11) then
+if Length(CupBase11) = CB[11].Mod2Cohomologydim then
     Print("");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^11) = ", Length(CupBase11) - Cohomology(TR,11),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^11) = ", Length(CupBase11) - CB[11].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[11] := CupRel11Lett;
 
 ####################### r = 12 #########################
 
 CupBase12 :=[];
 CupBase12Lett :=[];
 CupRel12Lett := [];
-CupRelByDeg[12] := CupRel12Lett;
-
-PrepRelReduce(12);
+RelReducer := SGC_NewRelationReducer(GensLett,GenDegAll,CupRelByDeg,12);
+if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+    ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(degree := RelReducer.degree, relationProductCount := RelReducer.relationProductCount, rank := RelReducer.rank));
+fi;
 #Step 1: degree-11 basis cup with degree-1 generators
 CupStep(CupBase11, CupBase11Lett, 11, Gen1, 0, 1, 0, CupBase12, CupBase12Lett, CupRel12Lett, 12);
 #Step 2: degree-10 basis without Gen1 factors cup with degree-2 generators
@@ -3245,7 +2657,7 @@ for u in Gen6 do
                 Append(CupBase12,[cupped]);
                 Append(CupBase12Lett,[Lett1]);
             else
-                sol :=SGC_CachedSolve(CupBase12,cupped);
+                sol :=SGC_CachedSolveIn(SolverCache,CupBase12,cupped);
                 if sol = fail then                  #if u-cup-v is a genuine new cocycle
                     Append(CupBase12,[cupped]);
                     Append(CupBase12Lett,[Lett1]);
@@ -3268,11 +2680,12 @@ od;
 
 #Note that there's no Gen12!!
 
-if Length(CupBase12) = Cohomology(TR,12) then
+if Length(CupBase12) = CB[12].Mod2Cohomologydim then
     Print("");
 else
-    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^12) = ", Length(CupBase12) - Cohomology(TR,12),"\n");
+    Print("!!!! No match!!!! dim(Chosen basis) - dim(H^12) = ", Length(CupBase12) - CB[12].Mod2Cohomologydim,"\n");
 fi;
+CupRelByDeg[12] := CupRel12Lett;
 
 fi;
 #the above "fi;" ends the r = 9..12 relation search for the degree-6 generator groups.
@@ -3285,27 +2698,7 @@ fi;
 #
 ####   Begin printing cohomology ring   ####
 #
-#Collect the relation lists that exist on this run: degrees 2..6 always,
-#7..8 only when the r=7/r=8 block ran, 9..12 only for the degree-6 generator
-#groups (resolution length 13). CupRel7Lett etc. are locals that stay
-#unassigned otherwise, so the gates must match those blocks' relation-degree
-#conditions exactly.
-CupRelByDeg := [];
-CupRelByDeg[2] := CupRel2Lett;
-CupRelByDeg[3] := CupRel3Lett;
-CupRelByDeg[4] := CupRel4Lett;
-CupRelByDeg[5] := CupRel5Lett;
-CupRelByDeg[6] := CupRel6Lett;
-if n >= 8 then
-    CupRelByDeg[7] := CupRel7Lett;
-    CupRelByDeg[8] := CupRel8Lett;
-fi;
-if n >= 12 then
-    CupRelByDeg[9]  := CupRel9Lett;
-    CupRelByDeg[10] := CupRel10Lett;
-    CupRelByDeg[11] := CupRel11Lett;
-    CupRelByDeg[12] := CupRel12Lett;
-fi;
+#CupRelByDeg was populated incrementally as each relation degree completed.
 
 relations := [];
 for r in [2..12] do
@@ -3615,14 +3008,14 @@ SGC_CohomologyData:=function(arg)
 local
     IT,
     C2, C2p, M, P, C3,
-    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind,
+    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind, PGMat33Dict, PGindDict,
     o0,o1,o2,o3,o4,o5,
     R,CB,
     GenName_standard, Rdim,lst1,lst2,lst3,lst4,lst5,lst6,lst1to4,
-    MatToPow,GapToPow,Fbarhomotopyindinv,Invofg,Prodg1g2Pow,IndToElem,
+    MatToPow,GapToPow,GapToPowCache,Fbarhomotopyindinv,Invofg,Prodg1g2Pow,IndToElem,
     Homotopydeg1,Homotopydeg2,Homotopydeg3,Homotopydeg4,
     func,funcs,receive,FuncVal,TopoInvdeg3,
-    Gen1, Gen2, Gen3, Gen4, GensGAP, GensDim1to4, GensDeg1to4,
+    Gen1, Gen2, Gen3, Gen4, Gen6, GensGAP, requiredGeneratorDegree, GensDim1to4, GensDeg1to4,
     Gen3Failed, Decomp3, dimH1, dimH2, known, rk0, gcand, savedBreakOnError,
     RingData, BasesLett, Base3Lett,
     i,j,k,p,x,y;
@@ -3650,7 +3043,7 @@ local i, mat33, trans;
 
 mat33:=List([1..3],i->List([1..3],j->mat[i,j]));
 
-i:=Position(PGMat33,mat33);
+i:=LookupDictionary(PGMat33Dict,mat33);
 if i = fail then
     Error("MatToPow: the 3x3 rotation part is not among the enumerated point-group matrices.\n");
 fi;
@@ -3661,8 +3054,10 @@ return Concatenation(List([1..3],x->trans[x,4]),PGind[i]);
 end;
 #####################################################################
 GapToPow:=function(i)            #given the index i s.t. mat:=R!.elts[i], output the list of powers of group generators
-
-return MatToPow(R!.elts[i]);
+if not IsBound(GapToPowCache[i]) then
+    GapToPowCache[i]:=MatToPow(R!.elts[i]);
+fi;
+return GapToPowCache[i];
 end;
 #####################################################################
 Invofg:=function(v)
@@ -3670,7 +3065,7 @@ local vpg, transmat, p;
 
 transmat := [[1,0,0,v[1]],[0,1,0,v[2]],[0,0,1,v[3]],[0,0,0,1]];
 vpg := List([4..(Length(v))],x->v[x]);
-p := Position(PGind,vpg);
+p := LookupDictionary(PGindDict,vpg);
 if p = fail then
     Error("Invofg: point-group part ", vpg, " not found in PGind.\n");
 fi;
@@ -3685,8 +3080,8 @@ transmat1 := [[1,0,0,v1[1]],[0,1,0,v1[2]],[0,0,1,v1[3]],[0,0,0,1]];
 transmat2 := [[1,0,0,v2[1]],[0,1,0,v2[2]],[0,0,1,v2[3]],[0,0,0,1]];
 vpg1 := List([4..(Length(v1))],x->v1[x]);
 vpg2 := List([4..(Length(v2))],x->v2[x]);
-p1 := Position(PGind,vpg1);
-p2 := Position(PGind,vpg2);
+p1 := LookupDictionary(PGindDict,vpg1);
+p2 := LookupDictionary(PGindDict,vpg2);
 if p1 = fail or p2 = fail then
     Error("Prodg1g2Pow: point-group part not found in PGind (", vpg1, " or ", vpg2, ").\n");
 fi;
@@ -3746,7 +3141,7 @@ return val;
 end;
 #####################################################################
 TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters,[matrices giving linear combination of letters])
-local gs,letters,solrels,vallist,i;
+local gs,letters,solrels,vallist;
 
 gs := arg[1];               #List of group elements [g1] or [g1,g2] or [g1,g2,g3] at which the cocycles are evaluated
 letters := arg[2];          #List of letters representing the monomials
@@ -3754,10 +3149,7 @@ vallist := fail;            #stays fail unless a topological-invariant formula m
 
 
 if Length(arg) = 2 then
-    solrels := List([1..Length(letters)],x->List([1..Length(letters)],y->0));
-    for i in [1..Length(letters)] do
-        solrels[i][i] := 1;
-    od;
+    solrels := fail;
 else
     solrels := arg[3];
 fi;
@@ -3820,6 +3212,9 @@ else
 fi;
 if vallist = fail then      #no formula matched (or input flagged "not a topological invariant") -- fail loudly, not with an opaque unbound-variable error
     Error("TopoInvdeg3: no topological-invariant formula matched the given group element(s): ", gs, "\n");
+fi;
+if solrels = fail then
+    return GF2ToZ(vallist*Z(2));
 fi;
 return GF2ToZ((solrels*vallist)*Z(2));
 end;
@@ -3926,12 +3321,27 @@ else
     Print("Number of Point Group Generators Exceeds 5 -- WRONG!!!");
 fi;
 
+#These dictionaries deliberately retain the first occurrence, matching Position.
+#They are private to this Context's closures and therefore tied to its exact
+#point-group enumeration and resolution.
+PGindDict:=NewDictionary(PGind[1],true);
+PGMat33Dict:=NewDictionary(PGMat33[1],true);
+for i in [1..Length(PGind)] do
+    if LookupDictionary(PGindDict,PGind[i]) = fail then
+        AddDictionary(PGindDict,PGind[i],i);
+    fi;
+    if LookupDictionary(PGMat33Dict,PGMat33[i]) = fail then
+        AddDictionary(PGMat33Dict,PGMat33[i],i);
+    fi;
+od;
+
 
 if Length(arg) = 1 then
     R:=SGC_ResolutionForIT(IT);
 else
     R:=arg[2];
 fi;
+GapToPowCache:=[];
 #Resolution for the group now available.
 #R!.elts are column-convention affine matrices in the group generated by
 #[T1,T2,T3] and PGGen (CrystallographicComplex standardizes -- a no-op here,
@@ -3962,9 +3372,6 @@ for func in funcs[2] do
     Append(Gen2,[CB[2].cocycleToClass(List([1..R!.dimension(2)],x->RemInt(Sum(List(Homotopydeg2[x],y->func(GapToPow(y[1]),GapToPow(y[2])))),2)))]);
 od;
 
-GensGAP:=Mod2RingGenerators(R,4,3); #GensGAP: Generators of the mod-2 cohomology ring at degree 1-4 that are worked out by GAP; GensGAP is to be compared with those worked out from explicit cochain expressions (Gen1,Gen2,Gen3). Here: R is the resolution, 4 is the maximal degree at which the generators are worked out, and 3 is the dimension of the space group (if 2 instead then computes wallpaper group).
-
-
 #Explicit degree-3 cocycle functions are evaluated on the resolution via the
 #contracting homotopy. For a few groups (the R-suffixed generator names of
 #IT 225/227/229) the stored function does not transport to a cocycle on this
@@ -3992,6 +3399,18 @@ for func in funcs[3] do
         Append(Gen3Failed,[Length(Gen3)]);
     fi;
 od;
+
+#Compute generic generators once, and only to the highest degree actually
+#needed. Explicit Gen1/Gen2 and successfully transported Gen3 remain authoritative.
+requiredGeneratorDegree:=0;
+if (IT in SGC_Degree6GeneratorGroups) = true then
+    requiredGeneratorDegree:=6;
+elif (IT in SGC_Degree4GeneratorGroups) = true or Length(Gen3Failed) > 0 then
+    requiredGeneratorDegree:=4;
+fi;
+if requiredGeneratorDegree > 0 then
+    GensGAP:=Mod2RingGenerators(R,requiredGeneratorDegree,3);
+fi;
 
 if Length(Gen3Failed) > 0 then
     #Degree-3 decomposable classes: cup products H^1 x H^2 (this includes all
@@ -4031,10 +3450,12 @@ fi;
 
 
 Gen4:=[];
-
-
 if (IT in SGC_Degree4GeneratorGroups) = true then
     Gen4 := GensGAP[4];
+fi;
+Gen6:=[];
+if (IT in SGC_Degree6GeneratorGroups) = true then
+    Gen6 := GensGAP[6];
 fi;
 
 #GAP-computed degree-4 generators are a Steinitz completion and must be independent;
@@ -4044,7 +3465,7 @@ if Length(Gen4) > 0 and Length(SGC_RowBasisMod2(Gen4)) < Length(Gen4) then
 fi;
 
 
-RingData := Mod2RingGensAndRels(IT,3,R,[Gen1,Gen2,Gen3,Gen4],true,
+RingData := Mod2RingGensAndRels(IT,3,R,[Gen1,Gen2,Gen3,Gen4,[],Gen6],true,
                                 SGC_MaxRelationDegreeForIT(IT));
 BasesLett := RingData.bases;
 
@@ -4054,6 +3475,7 @@ GensDeg1to4:=Concatenation(List([1..Length(Gen1)],x->1),List([1..Length(Gen2)],x
 Base3Lett := BasesLett[3];
 
 return rec(
+    isSGCCohomologyContext := true,
     IT := IT,
     resolution := R,
     ring := RingData,
@@ -4076,10 +3498,18 @@ SGC_WPCohomologyData:=function(Context)
 local
     IT, Base3Lett, GensDim1to4, PGind, PGMat,
     TopoInvdeg3, Prodg1g2Pow, IndToElem,
-    LSMLett, overcomplete_g, Mat, mat1, mat2, vec, sol, LSMMat, CountLSM,
-    g1,g2,g3,v1,v2,v3,x1,y1,z1,x2,y2,z2,x3,y3,z3,
+    LSMLett, Mat, mat2, vec, LSMMat, CountLSM,
+    g1, g2, g2Square, Candidates, candidate1, candidate2,
+    pointIndex, x1, y1, z1, identityAffine, Span, addCandidate,
+    scanCandidates, rank,
     table, coordinates, entry, label, key, target, equalPosition,
-    zeroCoordinate, j, i, x;
+    zeroCoordinate, j, x;
+
+if not (IsRecord(Context) or IsComponentObjectRep(Context))
+   or not IsBound(Context.isSGCCohomologyContext)
+   or Context.isSGCCohomologyContext <> true then
+    Error("SGC_WPCohomologyData: expected a prepared cohomology Context\n");
+fi;
 
 IT:=Context.IT;
 Base3Lett:=Context.base3Letters;
@@ -4096,7 +3526,6 @@ IndToElem:=Context.indToElem;
 ############################### BELOW ARE LSM RELATED CODES ###############################
 
 
-overcomplete_g:=[];
 Mat:=[];
 
 
@@ -4107,77 +3536,95 @@ CountLSM := [];
 for x in IWP[IT] do
     if (x[2] = []) = false then
         Append(Mat,[TopoInvdeg3(x[2],Base3Lett)]);
-        Append(overcomplete_g,[x[2]]);
         Append(CountLSM,[x[2]]);
     fi;
 od;
 
 
+Span:=SGC_NewSpanTesterMod2(Mat);
+identityAffine:=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+
+addCandidate:=function(candidateVector)
+if Span.addIfIndependent(candidateVector) then
+    Add(Mat,candidateVector);
+fi;
+return Span.rank()=Length(Base3Lett);
+end;
+
+
 #Second: find all the non-LSM TIs, which are of one of the following four types:
 #
 #
-for v2 in PGind do
-    if (IT <= 220) or (v2[3] = 0) then
-        for x2 in [-2..2] do
-            for y2 in [-2..2] do
-                for z2 in [-2..2] do
-                    g2 := Concatenation([x2,y2,z2],v2);
-                    mat2 := [[1,0,0,x2],[0,1,0,y2],[0,0,1,z2],[0,0,0,1]] * PGMat[Position(PGind,v2)];
-                    if (mat2^2 = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]) then
-                        if Trace(mat2)=0 then                    #C2 rotation
-                            vec := TopoInvdeg3([g2],Base3Lett);
-                            sol :=SolutionMat(Mat*Z(2),vec*Z(2));
-                            if sol = fail then             #then we find a new non-LSM topo inv associated with C2 rotation
-                                Append(Mat,[vec]);
-                                Append(overcomplete_g,[[g2]]);
-                            fi;
-                        elif Trace(mat2)=2 then                  #Mirror
-                            vec := TopoInvdeg3([g2],Base3Lett);
-                            sol :=SolutionMat(Mat*Z(2),vec*Z(2));
-                            if sol = fail then             #then we find a new non-LSM topo inv associated with mirror
-                                Append(Mat,[vec]);
-                                Append(overcomplete_g,[[g2]]);
-                            fi;
-                            for v1 in PGind do
-                                for x1 in [-2..2] do
-                                    for y1 in [-2..2] do
-                                        for z1 in [-2..2] do
-                                            g1 := Concatenation([x1,y1,z1],v1);
-                                            if ((g1 = (g1*0)) = false) and Prodg1g2Pow(g2,g1) = Prodg1g2Pow(g1,g2) then
-                                                vec := TopoInvdeg3([g1,g2],Base3Lett);
-                                                sol :=SolutionMat(Mat*Z(2),vec*Z(2));
-                                                if sol = fail then       #then we find a new non-LSM topo inv associated with   commuting couples g1 and g2, where g2 is a mirror
-                                                    Append(Mat,[vec]);
-                                                    Append(overcomplete_g,[[g1,g2]]);
-                                                fi;
-                                            fi;
-                                        od;
-                                    od;
-                                od;
-                            od;
-                        fi;
-                    elif (mat2^4 = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]) and (Trace(mat2)=2) then         #C4 rotation
-                        vec := TopoInvdeg3([g2,Prodg1g2Pow(g2,g2)],Base3Lett);
-                        sol :=SolutionMat(Mat*Z(2),vec*Z(2));
-                        if sol = fail then       #then we find a new non-LSM topo inv associated with commuting couples C4 and   C4^2
-                            Append(Mat,[vec]);
-                            Append(overcomplete_g,[[g2,Prodg1g2Pow(g2,g2)]]);
+scanCandidates:=function()
+if Span.rank()=Length(Base3Lett) then
+    return;
+fi;
+
+#Build the bounded candidates once, in the old PGind -> x -> y -> z order.
+#The affine matrix is used only for order/trace classification and the inner
+#commutativity test; Context.productPower remains authoritative for formulas.
+Candidates:=[];
+for pointIndex in [1..Length(PGind)] do
+    for x1 in [-2..2] do
+        for y1 in [-2..2] do
+            for z1 in [-2..2] do
+                Add(Candidates,rec(
+                    powerVector:=Concatenation([x1,y1,z1],PGind[pointIndex]),
+                    affineMatrix:=[[1,0,0,x1],[0,1,0,y1],[0,0,1,z1],[0,0,0,1]]*PGMat[pointIndex],
+                    pointIndex:=pointIndex
+                ));
+            od;
+        od;
+    od;
+od;
+
+for candidate2 in Candidates do
+    if (IT <= 220) or (PGind[candidate2.pointIndex][3] = 0) then
+        g2:=candidate2.powerVector;
+        mat2:=candidate2.affineMatrix;
+        if mat2^2=identityAffine then
+            if Trace(mat2)=0 then                    #C2 rotation
+                vec:=TopoInvdeg3([g2],Base3Lett);
+                if addCandidate(vec) then
+                    return;
+                fi;
+            elif Trace(mat2)=2 then                  #Mirror
+                vec:=TopoInvdeg3([g2],Base3Lett);
+                if addCandidate(vec) then
+                    return;
+                fi;
+                for candidate1 in Candidates do
+                    g1:=candidate1.powerVector;
+                    if g1<>g1*0
+                       and mat2*candidate1.affineMatrix=candidate1.affineMatrix*mat2 then
+                        vec:=TopoInvdeg3([g1,g2],Base3Lett);
+                        if addCandidate(vec) then
+                            return;
                         fi;
                     fi;
                 od;
-            od;
-        od;
+            fi;
+        elif mat2^4=identityAffine and Trace(mat2)=2 then         #C4 rotation
+            g2Square:=Prodg1g2Pow(g2,g2);
+            vec:=TopoInvdeg3([g2,g2Square],Base3Lett);
+            if addCandidate(vec) then
+                return;
+            fi;
+        fi;
     fi;
 od;
+end;
 
+scanCandidates();
+rank:=Span.rank();
 
-if RankMatrix(Mat*Z(2)) = Length(Base3Lett) and RankMatrix(Mat*Z(2)) = Length(Mat) then
+if rank = Length(Base3Lett) and rank = Length(Mat) then
 
     LSMMat := List(TransposedMat(InverseMatMod(Mat,2)));
     LSMLett := List([1..Length(CountLSM)],x->LSMMat[x]);
 else
-    Error("WPCohomologyTable: full rank not achieved: ", RankMatrix(Mat*Z(2)),
-          "!=", Length(Base3Lett), " or ", RankMatrix(Mat*Z(2)),
+    Error("WPCohomologyTable: full rank not achieved: ", rank,
+          "!=", Length(Base3Lett), " or ", rank,
           "!=", Length(Mat), "\n");
 fi;
 
@@ -4212,6 +3659,8 @@ for entry in IWP[IT] do
 od;
 
 return rec(
+    isSGCWPCohomologyData:=true,
+    context:=Context,
     table:=table,
     coordinates:=coordinates,
     rawIWP:=IWP[IT],
@@ -4258,15 +3707,20 @@ end;
 GroupCohomologyMod2:=function(arg)
 local Context, R;
 
-if Length(arg) = 1 and IsInt(arg[1]) then
+if Length(arg) = 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
+   and IsBound(arg[1].isSGCCohomologyContext)
+   and arg[1].isSGCCohomologyContext = true then
+    Context:=arg[1];
+elif Length(arg) = 1 and IsInt(arg[1]) then
     R:=SGC_ResolutionForIT(arg[1]);
+    Context:=SGC_CohomologyData(arg[1],R);
 elif Length(arg) = 2 and IsInt(arg[1]) then
     R:=arg[2];
+    Context:=SGC_CohomologyData(arg[1],R);
 else
-    Error("GroupCohomologyMod2: expected IT or (IT,R)\n");
+    Error("GroupCohomologyMod2: expected Context, IT, or (IT,R)\n");
 fi;
 
-Context:=SGC_CohomologyData(arg[1],R);
 SGC_PrintMod2RingData(Context.ring);
 end;
 
@@ -4276,16 +3730,34 @@ end;
 WPCohomologyTable:=function(arg)
 local Context, R, WPData, entry, equalPosition, key;
 
-if Length(arg) = 1 and IsInt(arg[1]) then
+if Length(arg) >= 1 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
+   and IsBound(arg[1].isSGCCohomologyContext)
+   and arg[1].isSGCCohomologyContext = true then
+    Context:=arg[1];
+    if Length(arg) = 1 then
+        WPData:=SGC_WPCohomologyData(Context);
+    elif Length(arg) = 2 and (IsRecord(arg[2]) or IsComponentObjectRep(arg[2]))
+         and IsBound(arg[2].isSGCWPCohomologyData)
+         and arg[2].isSGCWPCohomologyData = true then
+        WPData:=arg[2];
+        if not IsIdenticalObj(WPData.context,Context) then
+            Error("WPCohomologyTable: WPData belongs to a different Context\n");
+        fi;
+    else
+        Error("WPCohomologyTable: expected Context or (Context,WPData)\n");
+    fi;
+elif Length(arg) = 1 and IsInt(arg[1]) then
     R:=SGC_ResolutionForIT(arg[1]);
+    Context:=SGC_CohomologyData(arg[1],R);
+    WPData:=SGC_WPCohomologyData(Context);
 elif Length(arg) = 2 and IsInt(arg[1]) then
     R:=arg[2];
+    Context:=SGC_CohomologyData(arg[1],R);
+    WPData:=SGC_WPCohomologyData(Context);
 else
-    Error("WPCohomologyTable: expected IT or (IT,R)\n");
+    Error("WPCohomologyTable: expected Context, (Context,WPData), IT, or (IT,R)\n");
 fi;
 
-Context:=SGC_CohomologyData(arg[1],R);
-WPData:=SGC_WPCohomologyData(Context);
 for entry in WPData.rawIWP do
     equalPosition:=Position(entry[1],'=');
     if equalPosition = fail then
@@ -4304,24 +3776,41 @@ end;
 WPCohomologyClass:=function(arg)
 local R, WPs, Context, WPData, rawLabels, coordinate, wp, equalPosition, key, i, Class;
 
-if Length(arg) = 2 and IsInt(arg[1]) then
+if Length(arg) >= 2 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
+   and IsBound(arg[1].isSGCCohomologyContext)
+   and arg[1].isSGCCohomologyContext = true then
+    Context:=arg[1];
+    if Length(arg) = 2 then
+        WPs:=arg[2];
+        WPData:=SGC_WPCohomologyData(Context);
+    elif Length(arg) = 3 and (IsRecord(arg[2]) or IsComponentObjectRep(arg[2]))
+         and IsBound(arg[2].isSGCWPCohomologyData)
+         and arg[2].isSGCWPCohomologyData = true then
+        WPData:=arg[2];
+        WPs:=arg[3];
+        if not IsIdenticalObj(WPData.context,Context) then
+            Error("WPCohomologyClass: WPData belongs to a different Context\n");
+        fi;
+    else
+        Error("WPCohomologyClass: expected (Context,WPs) or (Context,WPData,WPs)\n");
+    fi;
+elif Length(arg) = 2 and IsInt(arg[1]) then
     WPs:=arg[2];
+    R:=SGC_ResolutionForIT(arg[1]);
+    Context:=SGC_CohomologyData(arg[1],R);
+    WPData:=SGC_WPCohomologyData(Context);
 elif Length(arg) = 3 and IsInt(arg[1]) then
     R:=arg[2];
     WPs:=arg[3];
+    Context:=SGC_CohomologyData(arg[1],R);
+    WPData:=SGC_WPCohomologyData(Context);
 else
-    Error("WPCohomologyClass: expected (IT,WPs) or (IT,R,WPs)\n");
+    Error("WPCohomologyClass: expected prepared Context data or an IT signature\n");
 fi;
 if not IsList(WPs) or IsString(WPs)
    or not ForAll(WPs,IsString) then
     Error("WPCohomologyClass: WPs must be a list of Wyckoff-position labels\n");
 fi;
-if Length(arg) = 2 then
-    R:=SGC_ResolutionForIT(arg[1]);
-fi;
-
-Context:=SGC_CohomologyData(arg[1],R);
-WPData:=SGC_WPCohomologyData(Context);
 rawLabels:=List(WPData.rawIWP,x->x[1]);
 coordinate:=List([1..Length(Context.base3Letters)],x->0);
 for wp in WPs do
@@ -4331,13 +3820,13 @@ for wp in WPs do
     else
         if not wp in rawLabels then
             Error("WPCohomologyClass: unknown annotated Wyckoff position ",wp,
-                  " for IT=",arg[1],"\n");
+                  " for IT=",Context.IT,"\n");
         fi;
         key:=wp{[1..equalPosition-1]};
     fi;
     if not IsBound(WPData.coordinates.(key)) then
         Error("WPCohomologyClass: unknown Wyckoff position ",wp,
-              " for IT=",arg[1],"\n");
+              " for IT=",Context.IT,"\n");
     fi;
     for i in [1..Length(coordinate)] do
         coordinate[i]:=RemInt(coordinate[i]+WPData.coordinates.(key)[i],2);

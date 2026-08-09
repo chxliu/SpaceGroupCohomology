@@ -296,10 +296,53 @@ end;
 # what makes (identity, Length) a sound validity key.
 SGC_SolverCacheList := [];
 
-SGC_CachedSolve:=function(M, b)
+SGC_NewSpanTesterMod2:=function(M)
+local d, basis, solver, rebuild, checkWidth, T;
+d := SGC_MatDims(M);
+if d[1] = 0 then
+    basis := [];
+else
+    basis := List(SGC_RowBasisMod2(M), ShallowCopy);
+fi;
+solver := SGC_SolverMod2(basis);
+checkWidth := function(v)
+    if Length(v) <> d[2] then
+        Error("SGC_NewSpanTesterMod2: vector has wrong width");
+    fi;
+end;
+rebuild := function()
+    solver := SGC_SolverMod2(basis);
+end;
+T := rec(dimension := d[2]);
+T.rank := function()
+    return Length(basis);
+end;
+T.contains := function(v)
+    checkWidth(v);
+    return solver(v) <> fail;
+end;
+T.addIfIndependent := function(v)
+    checkWidth(v);
+    if solver(v) <> fail then return false; fi;
+    Add(basis, ShallowCopy(v*Z(2)));
+    rebuild();
+    return true;
+end;
+return T;
+end;
+#####################################################################
+
+#####################################################################
+SGC_NewSolverCache:=function()
+return rec(entries := []);
+end;
+#####################################################################
+
+#####################################################################
+SGC_CachedSolveIn:=function(cache, M, b)
 local k, ent;
-for k in [1..Length(SGC_SolverCacheList)] do
-    ent := SGC_SolverCacheList[k];
+for k in [1..Length(cache.entries)] do
+    ent := cache.entries[k];
     if IsIdenticalObj(ent.mat, M) then
         if ent.len <> Length(M) then
             ent.len := Length(M);
@@ -309,11 +352,21 @@ for k in [1..Length(SGC_SolverCacheList)] do
     fi;
 od;
 ent := rec(mat := M, len := Length(M), solver := SGC_SolverMod2(M));
-Add(SGC_SolverCacheList, ent);
+Add(cache.entries, ent);
+return ent.solver(b);
+end;
+#####################################################################
+
+#####################################################################
+SGC_CachedSolve:=function(M, b)
+local cache, result;
+cache := rec(entries := SGC_SolverCacheList);
+result := SGC_CachedSolveIn(cache, M, b);
+SGC_SolverCacheList := cache.entries;
 if Length(SGC_SolverCacheList) > 16 then
     Remove(SGC_SolverCacheList, 1);
 fi;
-return ent.solver(b);
+return result;
 end;
 #####################################################################
 

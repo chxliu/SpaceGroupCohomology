@@ -29,6 +29,22 @@ gap> if resolutionBuilderWasReadOnly then MakeReadOnlyGlobal("SGC_ResolutionSpac
 gap> resolutionCallCount;
 1
 
+# The batched cup helper reuses one left chain map and preserves right-factor
+# order.  This is the degree-one IT1 fixture used throughout the ring pipeline.
+gap> C1 := CR_Mod2CocyclesAndCoboundaries(Rapi,1,true);; C2 := CR_Mod2CocyclesAndCoboundaries(Rapi,2,true);;
+gap> BatchedCupFixture := function() if not IsBoundGlobal("Mod2CupProducts") then return fail; fi; return ValueGlobal("Mod2CupProducts")(Rapi,[1,0,0],CohomologyBasis([1,1,1]),1,1,C1,C1,C2); end;;
+gap> BatchedCupFixture();
+[ [ 0, 0, 0 ], [ 1, 0, 0 ], [ 0, 1, 0 ] ]
+gap> originalChainMapBuilder := CR_ChainMapFromCocycle;; chainMapBuildCount := 0;; chainMapEvaluationCount := 0;;
+gap> chainMapBuilderWasReadOnly := IsReadOnlyGlobal("CR_ChainMapFromCocycle");;
+gap> if chainMapBuilderWasReadOnly then MakeReadWriteGlobal("CR_ChainMapFromCocycle"); fi;;
+gap> CR_ChainMapFromCocycle := function(arg) local f; chainMapBuildCount := chainMapBuildCount+1; f := CallFuncList(originalChainMapBuilder,arg); return function(x) chainMapEvaluationCount := chainMapEvaluationCount+1; return f(x); end; end;;
+gap> batchedCounted := Mod2CupProducts(Rapi,[1,0,0],CohomologyBasis([1,1,1]),1,1,C1,C1,C2);;
+gap> CR_ChainMapFromCocycle := originalChainMapBuilder;;
+gap> if chainMapBuilderWasReadOnly then MakeReadOnlyGlobal("CR_ChainMapFromCocycle"); fi;;
+gap> [batchedCounted,chainMapBuildCount,chainMapEvaluationCount];
+[ [ [ 0, 0, 0 ], [ 1, 0, 0 ], [ 0, 1, 0 ] ], 1, 3 ]
+
 # Public 2.1 presentation APIs.  The IT-only forms reuse Rapi through a narrow
 # substitution of the resolution factory; all cohomology and formatting work
 # remains real.  The supplied-resolution forms use the same Rapi directly.
@@ -52,6 +68,59 @@ gap> WPCohomologyClass(1,Rapi,["1a"]);;
 Ax.Ay.Az
 gap> WPCohomologyClass(1,Rapi,["1a","1a"]);;
 0
+
+# Prepared Context data must avoid the unnecessary generic generator pass for
+# IT1, and the public APIs must accept one caller-owned Context/WPData pair.
+gap> originalMod2RingGenerators := Mod2RingGenerators;;
+gap> mod2RingGeneratorDegrees := [];;
+gap> mod2RingGeneratorsWasReadOnly := IsReadOnlyGlobal("Mod2RingGenerators");;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
+gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
+gap> ContextApi := SGC_CohomologyData(1,Rapi);;
+gap> Mod2RingGenerators := originalMod2RingGenerators;;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
+gap> mod2RingGeneratorDegrees;
+[  ]
+
+# Once the source IWP rows already span H3, WP construction must not evaluate
+# any additional topological-invariant candidates.  The synthetic point-group
+# matrix makes continued scanning observable without changing the IT1 IWP row.
+gap> ContextEarlyExit := ShallowCopy(ContextApi);; originalTopoInvdeg3 := ContextApi.topoInvdeg3;; topoInvdeg3Calls := 0;; nonemptyIWPCount := Number(IWP[1],x->x[2]<>[]);;
+gap> ContextEarlyExit.pointGroupMatrices := [[[-1,0,0,0],[0,-1,0,0],[0,0,1,0],[0,0,0,1]]];;
+gap> ContextEarlyExit.topoInvdeg3 := function(arg) topoInvdeg3Calls := topoInvdeg3Calls+1; if topoInvdeg3Calls <= nonemptyIWPCount then return CallFuncList(originalTopoInvdeg3,arg); fi; return List([1..Length(arg[2])],x->0); end;;
+gap> WPDataEarlyExit := SGC_WPCohomologyData(ContextEarlyExit);;
+gap> [topoInvdeg3Calls,Number(IWP[1],x->x[2]<>[])];
+[ 1, 1 ]
+
+# The two-argument topological-invariant form is exactly the identity transform;
+# an explicitly supplied non-identity transform retains its old semantics.
+gap> topoFixture := IWP[1][1][2];; topoLetters := ContextApi.base3Letters;;
+gap> [ContextApi.topoInvdeg3(topoFixture,topoLetters)=ContextApi.topoInvdeg3(topoFixture,topoLetters,[[1]]),ContextApi.topoInvdeg3(topoFixture,topoLetters,[[0]])];
+[ true, [ 0 ] ]
+gap> WPDataApi := SGC_WPCohomologyData(ContextApi);;
+gap> [ContextApi.isSGCCohomologyContext,WPDataApi.isSGCWPCohomologyData,IsIdenticalObj(WPDataApi.context,ContextApi)];
+[ true, true, true ]
+gap> originalCohomologyData := SGC_CohomologyData;; originalWPCohomologyData := SGC_WPCohomologyData;;
+gap> cohomologyDataCalls := 0;; wpCohomologyDataCalls := 0;;
+gap> cohomologyDataWasReadOnly := IsReadOnlyGlobal("SGC_CohomologyData");; wpCohomologyDataWasReadOnly := IsReadOnlyGlobal("SGC_WPCohomologyData");;
+gap> if cohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_CohomologyData"); fi;; if wpCohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_WPCohomologyData"); fi;;
+gap> SGC_CohomologyData := function(arg) cohomologyDataCalls := cohomologyDataCalls+1; return CallFuncList(originalCohomologyData,arg); end;;
+gap> SGC_WPCohomologyData := function(Context) wpCohomologyDataCalls := wpCohomologyDataCalls+1; return originalWPCohomologyData(Context); end;;
+gap> GroupCohomologyMod2(ContextApi);;
+Z2[Ax,Ay,Az]/<R2>
+R2:  Ax^2  Ay^2  Az^2
+gap> WPCohomologyTable(ContextApi);;
+1a Ax.Ay.Az
+gap> WPCohomologyTable(ContextApi,WPDataApi);;
+1a Ax.Ay.Az
+gap> WPCohomologyClass(ContextApi,["1a"]);;
+Ax.Ay.Az
+gap> WPCohomologyClass(ContextApi,WPDataApi,["1a","1a"]);;
+0
+gap> SGC_CohomologyData := originalCohomologyData;; SGC_WPCohomologyData := originalWPCohomologyData;;
+gap> if cohomologyDataWasReadOnly then MakeReadOnlyGlobal("SGC_CohomologyData"); fi;; if wpCohomologyDataWasReadOnly then MakeReadOnlyGlobal("SGC_WPCohomologyData"); fi;;
+gap> [cohomologyDataCalls,wpCohomologyDataCalls];
+[ 0, 2 ]
 gap> SGC_ResolutionForIT := originalResolutionForIT;;
 gap> if resolutionForITWasReadOnly then MakeReadOnlyGlobal("SGC_ResolutionForIT"); fi;;
 
@@ -110,6 +179,9 @@ LSM:
 true
 
 # Test 4: Tetragonal group with degree-4 generator
+gap> mod2RingGeneratorDegrees := [];;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
+gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
 gap> SpaceGroupCohomologyRingGapInterface(108);
 ===========================================
 Mod-2 Cohomology Ring of Group No. 108:
@@ -126,8 +198,15 @@ LSM:
 4a Amp.Ba+Am.Ba+Axyz.Ba+Amp.Bzxy
 4b Amp.Bzxy
 true
+gap> Mod2RingGenerators := originalMod2RingGenerators;;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
+gap> mod2RingGeneratorDegrees;
+[ 4 ]
 
 # Test 5: Cubic group with degree-6 generators
+gap> mod2RingGeneratorDegrees := [];;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
+gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
 gap> SpaceGroupCohomologyRingGapInterface(219);
 ===========================================
 Mod-2 Cohomology Ring of Group No. 219:
@@ -148,5 +227,9 @@ LSM:
 24c Am.Bxyxzyz
 24d Am.Ba+Am.Bxyxzyz
 true
+gap> Mod2RingGenerators := originalMod2RingGenerators;;
+gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
+gap> mod2RingGeneratorDegrees;
+[ 6 ]
 
 gap> STOP_TEST("smoke.tst", 0);

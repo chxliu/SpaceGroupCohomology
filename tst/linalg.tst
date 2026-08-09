@@ -86,6 +86,45 @@ gap> SGC_LINALG_THRESHOLD := 0;;
 gap> if SGC_LinalgBinary() = fail then Print("2\n"); else Print(SGC_RankMod2(S), "\n"); fi;
 2
 
+# Span testers retain a compact row basis, answer containment queries without
+# mutating it, and add precisely the vectors that enlarge its span.
+gap> Mspan := [[1,0,1],[0,1,1],[1,1,0]];;
+gap> SpanFixture := function(M) local T; if not IsBoundGlobal("SGC_NewSpanTesterMod2") then return fail; fi; T := ValueGlobal("SGC_NewSpanTesterMod2")(M); return [T.dimension,T.rank(),T.contains([1,1,0]),T.contains([1,0,0]),T.addIfIndependent([1,0,0]),T.rank(),T.contains([0,0,1]),T.addIfIndependent([0,0,1]),T.rank()]; end;;
+gap> SpanFixture(Mspan);
+[ 3, 2, true, false, true, 3, true, false, 3 ]
+gap> Sspan := SGC_SparseMat(0,3);;
+gap> SpanEmptyFixture := function(M) local T; if not IsBoundGlobal("SGC_NewSpanTesterMod2") then return fail; fi; T := ValueGlobal("SGC_NewSpanTesterMod2")(M); return [T.dimension,T.contains([0,0,0]),T.contains([1,0,0]),T.addIfIndependent([1,0,0]),T.rank()]; end;;
+gap> SpanEmptyFixture(Sspan);
+[ 3, true, false, true, 1 ]
+
+# Invocation-local solver caches do not share entries and refactor a matrix
+# after rows have been appended.
+gap> Mcache := [[1,0]];;
+gap> CacheFixture := function() local cache1,cache2,Solve; if not IsBoundGlobal("SGC_NewSolverCache") or not IsBoundGlobal("SGC_CachedSolveIn") then return fail; fi; Solve := ValueGlobal("SGC_CachedSolveIn");; cache1 := ValueGlobal("SGC_NewSolverCache")();; cache2 := ValueGlobal("SGC_NewSolverCache")();; return [Length(cache1.entries),SGC_GF2ToZ(Solve(cache1,Mcache,[1,0])),Length(cache1.entries),Length(cache2.entries),SGC_GF2ToZ(Solve(cache2,Mcache,[1,0])),Length(cache2.entries)]; end;;
+gap> CacheFixture();
+[ 0, [ 1 ], 1, 0, [ 1 ], 1 ]
+gap> CacheGrowthFixture := function() local cache,Solve; if not IsBoundGlobal("SGC_NewSolverCache") or not IsBoundGlobal("SGC_CachedSolveIn") then return fail; fi; Solve := ValueGlobal("SGC_CachedSolveIn");; cache := ValueGlobal("SGC_NewSolverCache")();; Solve(cache,Mcache,[1,0]);; Append(Mcache,[[0,1]]);; return [SGC_GF2ToZ(Solve(cache,Mcache,[1,1])),cache.entries[1].len]; end;;
+gap> CacheGrowthFixture();
+[ [ 1, 1 ], 2 ]
+
+# Relation reducers enumerate target monomials without a depth cap and keep
+# the sentinel coordinate used by the existing relation loops.
+gap> Rels4 := [];; Rels4[2] := [[[2,0],[0,1]]];;
+gap> RelationFixture := function() local T; if not IsBoundGlobal("SGC_NewRelationReducer") then return fail; fi; T := ValueGlobal("SGC_NewRelationReducer")([[1,0],[0,1]],[1,2],Rels4,4); return [T.monomials,T.vectorLength,T.relationProductCount,T.rank,T.encode([[4,0],[0,2]]),T.contains([1,0,1,0]),T.contains([0,1,0,0]),T.addIfIndependent([0,1,0,0]),T.rank,T.addIfIndependent([0,1,0,0])]; end;;
+gap> RelationFixture();
+[ [ [ 4, 0 ], [ 2, 1 ], [ 0, 2 ] ], 4, 2, 2, [ 1, 0, 1, 0 ], true, false, true, 3, false ]
+gap> RelationEmptyFixture := function() local T; if not IsBoundGlobal("SGC_NewRelationReducer") then return fail; fi; T := ValueGlobal("SGC_NewRelationReducer")([[1]],[3],[],2); return [T.monomials,T.vectorLength,T.relationProductCount,T.rank,T.contains([0])]; end;;
+gap> RelationEmptyFixture();
+[ [ ], 1, 0, 0, true ]
+gap> Rels12 := [];; Rels12[6] := [[[1]]];;
+gap> Relation12Fixture := function() local T; if not IsBoundGlobal("SGC_NewRelationReducer") then return fail; fi; T := ValueGlobal("SGC_NewRelationReducer")([[1]],[6],Rels12,12); return [T.monomials,T.relationProductCount,T.rank]; end;;
+gap> Relation12Fixture();
+[ [ [ 2 ] ], 1, 1 ]
+gap> Rels13 := [];; Rels13[2] := [[[2]]];;
+gap> Relation13Fixture := function() local T; if not IsBoundGlobal("SGC_NewRelationReducer") then return fail; fi; T := ValueGlobal("SGC_NewRelationReducer")([[1]],[1],Rels13,13); return [T.monomials,T.relationProductCount,T.rank]; end;;
+gap> Relation13Fixture();
+[ [ [ 13 ] ], 1, 1 ]
+
 # End-to-end forced offload through CR_Mod2CocyclesAndCoboundaries (Task 5):
 # cohomology dims are basis-independent and must equal the native values,
 # and the call counter proves the external binary was actually exercised.
