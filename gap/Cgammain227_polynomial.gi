@@ -1,5 +1,5 @@
 # Expanded polynomial representative obtained from the index-three transfer.
-CgammaRin227:=function(g1,g2,g3)
+Cgammain227:=function(g1,g2,g3)
 local x1,y1,z1,x2,y2,z2,x3,y3,z3,a1,a2,a3,b1,b2,b3,c1,c2,c3,d1,d2,d3,e1,e2,e3;
 x1:=g1[1];y1:=g1[2];z1:=g1[3];x2:=g2[1];y2:=g2[2];z2:=g2[3];x3:=g3[1];y3:=g3[2];z3:=g3[3];a1:=g1[4];a2:=g2[4];a3:=g3[4];b1:=g1[5];b2:=g2[5];b3:=g3[5];c1:=g1[6];c2:=g2[6];c3:=g3[6];d1:=g1[7];d2:=g2[7];d3:=g3[7];e1:=g1[8];e2:=g2[8];e3:=g3[8];
 return (
