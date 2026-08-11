@@ -142,6 +142,8 @@ SpaceGroupCohomology/
 ├── read.g              reads data, linalg, homotopy, then functions
 ├── gap/
 │   ├── data.gi         PGGens230, IWP, GENNAMES, funcs230 (230 entries each)
+│   ├── Cgammain227_polynomial.gi       cochain representative for generator Cc of space group 227
+│   ├── Cxyzin229_polynomial.gi         cochain representative for generator Cxyz of space group 229
 │   ├── linalg.gi       GAP/native and optional C++ mod-2 linear algebra
 │   ├── homotopy.gi     resolution construction with contracting homotopies
 │   └── functions.gi    library of cohomology-ring routines
