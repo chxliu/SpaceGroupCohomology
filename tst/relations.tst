@@ -3,9 +3,10 @@
 gap> START_TEST("SpaceGroupCohomology: relation reduction");
 gap> SetRecursionTrapInterval(100000000);;
 
-# Every relation-search degree must construct the generic reducer.  The
-# observer is intentionally optional in production and records no output by
-# itself; tests use it to characterize the integration path.
+# Relation reducers are constructed lazily only when a Cartesian dependent
+# candidate consults one.  The observer is intentionally optional in
+# production and records no output by itself; tests use it to characterize
+# those actual constructions.
 gap> relationReducerTrace := [];;
 gap> relationReducerStats := [];;
 gap> relationObserverSawMutableReducer := false;;
@@ -60,6 +61,24 @@ gap> if ringGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators");
 gap> [suppliedGen6FallbackCalls,D219supplied.generatorDegrees = D219relations.ring.generatorDegrees];
 [ 0, true ]
 
+# The direct supplied-resolution API chooses degree 6 on its first generator
+# pass for a degree-6 group.  This catches the old degree-4 pass followed by a
+# complete repeated prefix pass through degree 6.
+gap> directGeneratorDegrees := [];; directGeneratorResults := [];;
+gap> if ringGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
+gap> Mod2RingGenerators := function(arg) local result; Add(directGeneratorDegrees,arg[2]); result:=CallFuncList(originalRingGenerators,arg); Add(directGeneratorResults,result); return result; end;;
+gap> originalPrint := Print;; printWasReadOnly := IsReadOnlyGlobal("Print");;
+gap> if printWasReadOnly then MakeReadWriteGlobal("Print"); fi;;
+gap> Print := function(arg) return; end;;
+gap> D219directBases := Mod2RingGensAndRels(219,3,D219relations.resolution);;
+gap> Print := originalPrint;;
+gap> if printWasReadOnly then MakeReadOnlyGlobal("Print"); fi;;
+gap> Mod2RingGenerators := originalRingGenerators;;
+gap> if ringGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
+gap> G219prefix4 := originalRingGenerators(D219relations.resolution,4,3);;
+gap> [directGeneratorDegrees,G219prefix4=directGeneratorResults[1]{[1..4]},Length(D219directBases)];
+[ [ 6 ], true, 4 ]
+
 # IT198 has no target monomials in degrees 3--5.  Empty reducer targets remain
 # valid, and its only stored relation is the square of its degree-3 generator.
 gap> relationReducerTrace := [];; relationReducerStats := [];;
@@ -67,18 +86,29 @@ gap> D198relations := SGC_CohomologyData(198);;
 gap> [D198relations.ring.generatorDegrees,
 >     Filtered(D198relations.ring.relations,x->x[1]=6),
 >     relationReducerTrace];
-[ [ 3 ], [ [ 6, [ [ [ 2 ] ] ] ] ], [ 3, 4, 5, 6 ] ]
+[ [ 3 ], [ [ 6, [ [ [ 2 ] ] ] ] ], [  ] ]
+gap> WPCohomologyTable(D198relations);;
+4a Cb
 
 # Preserve the raw degree-6 path used by a length-6 resolution (n=5).  Its
 # accepted relation and its position in the degree sequence are pinned.
 gap> relationReducerTrace := [];; relationReducerStats := [];;
 gap> R221raw := SGC_ResolutionSpaceGroup(SpaceGroupIT(3,221),6);;
 gap> G221raw := Mod2RingGenerators(R221raw,4,3);;
+gap> originalSparseBoundaryMat := SGC_SparseBoundaryMat;;
+gap> sparseBoundaryWasReadOnly := IsReadOnlyGlobal("SGC_SparseBoundaryMat");;
+gap> if sparseBoundaryWasReadOnly then MakeReadWriteGlobal("SGC_SparseBoundaryMat"); fi;;
+gap> rawDegree6SparseCalls := 0;;
+gap> SGC_SparseBoundaryMat := function(R,n,transposed) if n=6 and transposed=true then rawDegree6SparseCalls:=rawDegree6SparseCalls+1; fi; return originalSparseBoundaryMat(R,n,transposed); end;;
 gap> D221raw := Mod2RingGensAndRels(221,3,R221raw,G221raw,true);;
+gap> SGC_SparseBoundaryMat := originalSparseBoundaryMat;;
+gap> if sparseBoundaryWasReadOnly then MakeReadOnlyGlobal("SGC_SparseBoundaryMat"); fi;;
 gap> [D221raw.maxRelationDegree,D221raw.generatorDegrees,
->     Filtered(D221raw.relations,x->x[1]=6),relationReducerTrace];
+>     Filtered(D221raw.relations,x->x[1]=6),relationReducerTrace,
+>     rawDegree6SparseCalls,
+>     HexSHA256(String(D221raw.bases))="5f210429743a2638c6641fd29ceea06e20cd145b350321a2a4debaf58e5fb25d"];
 [ 5, [ 1, 1, 1, 2, 2, 3, 3 ],
-  [ [ 6, [ [ [ 0, 0, 0, 0, 0, 1, 1 ] ] ] ] ], [ 3, 4, 5, 6 ] ]
+  [ [ 6, [ [ [ 0, 0, 0, 0, 0, 1, 1 ] ] ] ] ], [ 3, 4, 5, 6 ], 2, true ]
 
 # IT136 is the canonical-row stress case from the performance audit.  Product
 # counts exclude the legacy all-zero sentinel row; ranks pin the exact spans.
@@ -98,7 +128,7 @@ gap> D1degree13 := Mod2RingGensAndRels(fail,3,R1degree13,G1degree13,true,13,GENN
 gap> [D1degree13.maxRelationDegree,
 >     Length(D1degree13.generators.classes),
 >     D1degree13.generatorDimensions,
->     relationReducerTrace=[3..13],
+>     relationReducerTrace=[3,4],
 >     IsBound(D1degree13.relationsByDegree[13]),
 >     D1degree13.relations,
 >     D1degree13.bases];

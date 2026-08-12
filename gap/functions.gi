@@ -139,7 +139,7 @@ end;
 
 CR_Mod2CocyclesAndCoboundaries:=function(arg)
 local
-	R, n, toggle, Dimension, Boundary,
+	R, n, toggle, Dimension,
 	M1Ts, M2Ts, CCsolver,
 	kerdim, imgdim, cohdim, Mod2Cohomologydim,
     BasisKerd1, BasisImaged2, Rels, CobandCoc,
@@ -154,7 +154,6 @@ local
 R:=arg[1];
 n:=arg[2];
 Dimension:=R!.dimension;
-Boundary:=R!.boundary;
 toggle := true;
 if Length(arg) > 2 then       #optional 3rd arg now actually selects behavior;
     toggle := arg[3];         #all existing callers pass `true`, so behavior is unchanged.
@@ -276,40 +275,16 @@ end;
 #####################################################################
 #####################################################################
 
-Mod2CupProducts:=function(arg)
+SGC_Mod2CupProductsPrepared:=function(R,u,vCocycles,p,q,P,N)
 local
-    R, u, vs, p, q, P, Q, N,
     uCocycle,
     vCocycle,
     uvCocycle,
     uChainMap,
     DimensionR,
-    products, v, ww, i, w, x, sw;
+    products, ww, i, w, x, sw;
 
-    ####################BEGIN TO READ THE INPUT##################
-R:=arg[1];
 DimensionR:=R!.dimension;
-u:=arg[2];
-vs:=arg[3];
-p:=arg[4];
-q:=arg[5];
-
-if Length(arg)>5 then P:=arg[6];
-else
-P:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
-fi;
-
-if Length(arg)>6 then Q:=arg[7];
-else
-Q:=CR_Mod2CocyclesAndCoboundaries(R,q,true);
-fi;
-
-if Length(arg)>7 then N:=arg[8];
-else
-N:=CR_Mod2CocyclesAndCoboundaries(R,p+q,true);
-fi;
-    #####################FINISHED REAQDING THE INPUT#############
-
 uCocycle:=P.classToCocycle(u);
 uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,p,q);
 ww:=[];
@@ -317,8 +292,7 @@ for i in [1..DimensionR(p+q)] do
     ww[i]:=uChainMap([[i,1]]);
 od;
 products:=[];
-for v in vs do
-    vCocycle:=Q.classToCocycle(v);
+for vCocycle in vCocycles do
     uvCocycle:=[];
     for i in [1..DimensionR(p+q)] do
         w:=ww[i];
@@ -329,9 +303,35 @@ for v in vs do
         od;
         uvCocycle[i]:=sw mod 2;
     od;
-    Add(products,N.cocycleToClass(uvCocycle));
+    if N = fail then
+        Add(products,uvCocycle);
+    else
+        Add(products,N.cocycleToClass(uvCocycle));
+    fi;
 od;
 return products;
+end;
+#####################################################################
+#####################################################################
+
+Mod2CupProducts:=function(arg)
+local R,u,vs,p,q,P,Q,N,vCocycles;
+R:=arg[1];
+u:=arg[2];
+vs:=arg[3];
+p:=arg[4];
+q:=arg[5];
+if Length(arg)>5 then P:=arg[6];
+else P:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
+fi;
+if Length(arg)>6 then Q:=arg[7];
+else Q:=CR_Mod2CocyclesAndCoboundaries(R,q,true);
+fi;
+if Length(arg)>7 then N:=arg[8];
+else N:=CR_Mod2CocyclesAndCoboundaries(R,p+q,true);
+fi;
+vCocycles:=List(vs,v->Q.classToCocycle(v));
+return SGC_Mod2CupProductsPrepared(R,u,vCocycles,p,q,P,N);
 end;
 #####################################################################
 #####################################################################
@@ -387,51 +387,44 @@ od;
 end;
 #####################################################################
 
-Mod2RingGenerators:=function(arg)
+SGC_Mod2RingGeneratorsForTargets:=function(arg)
 local
-        R, n, GG, IT,
-        Gens, GensBasis, GensBasis1ton, Cups, Cupped, cupped, CuppedBasis, spacedim,
+    R, targets, n,
+        Gens, GensBasis, GensBasis1ton, Cups, Cupped, cupped, CuppedBasis,
         uCocycle, vCocycle, uvCocycle, ww, uChainMap,
-        sol, CB, CohBases,
-        BasisP, BasisQ,
-        i, j, p, q, u, v, ln, iu, iv, w, x, sw;
+        CB, CohBases,
+        BasisP, BasisQ, BasisQCocycles,
+        i, j, p, q, u, iu, iv, w, x, sw;
 
-#This function computes, for a given n, the generators at degree 1,2,...,n.
-#e.g. Mod2RingGenerators(IT=76,n=4);
-
-n:=arg[2];
-spacedim:=3;
-
-if Length(arg)=3 then
-    spacedim:=arg[3];
+R:=arg[1];
+targets:=Set(arg[2]);
+if Length(targets) = 0 then
+    return [];
 fi;
+if not ForAll(targets,j->IsInt(j) and j >= 1) then
+    Error("SGC_Mod2RingGeneratorsForTargets: targets must be positive integers\n");
+fi;
+n:=Maximum(targets);
 
-if IsInt(arg[1]) then
-    IT := arg[1];
-    GG := SpaceGroupIT(spacedim,IT);
-    R := SGC_ResolutionSpaceGroup(GG,n+1);
-
+if Length(arg) >= 3 then
+    CB:=arg[3];
 else
-    if IsGroup(arg[1]) then
-        GG := arg[1];
-        R := SGC_ResolutionSpaceGroup(GG,n+1);
-    else
-        R:=arg[1];
-    fi;
+    CB:=[];
 fi;
-
-
-CB:=[];
 for p in [1..n] do
-    CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);  #CR_Mod2CocyclesAndCoboundaries gives all the cocycles followed by all the coboundaries as vectors
+    if not IsBound(CB[p]) then
+        CB[p]:=CR_Mod2CocyclesAndCoboundaries(R,p,true);
+    fi;
 od;
 
 CohBases:=List([1..n],p->CohomologyBasis(List([1..CB[p].Mod2Cohomologydim],i->1)));
 
-GensBasis1ton :=[CohBases[1]];  # Record degree-1 generators  #Make an identity matrix, consisting of basis vectors for cocycles
+GensBasis1ton:=List([1..n],j->[]);
+if 1 in targets then
+    GensBasis1ton[1]:=CohBases[1];
+fi;
 
-
-for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
+for j in Filtered(targets,j->j >= 2) do
 
     Cups:=CohBases[j];    #Make an identity matrix, consisting of basis vectors for cocycles
 
@@ -441,6 +434,7 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
         q:=j-p;
         BasisP:=CohBases[p];
         BasisQ:=CohBases[q];
+        BasisQCocycles:=List(BasisQ,v->CB[q].classToCocycle(v));
 
         iu :=1;
         for u in BasisP do
@@ -452,12 +446,11 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
                 Append(ww, [uChainMap([[i,1]])]);
             od;
 
-            iv :=1;
-            for v in BasisQ do
+            for iv in [1..Length(BasisQ)] do
 
                 if ((p > q) or (p=q and iv>=iu)) then
 
-                    vCocycle:=CB[q].classToCocycle(v);
+                    vCocycle:=BasisQCocycles[iv];
 
                     uvCocycle:=[];
                     for i in [1..(R!.dimension(j))] do
@@ -477,7 +470,6 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
 
                 fi;
 
-                iv := iv+1;
             od;
 
             iu := iu+1;
@@ -508,6 +500,34 @@ for j in [2..n] do        # Then deal with degree-j generators for j=2,3,...,n
 od;
 
 return GensBasis1ton;
+end;
+
+#####################################################################
+
+Mod2RingGenerators:=function(arg)
+local R,n,GG,IT,spacedim;
+
+#This public function computes the generators at every degree 1,2,...,n.
+#The Context pipeline uses SGC_Mod2RingGeneratorsForTargets directly when it
+#needs only a selected higher-degree slot.
+n:=arg[2];
+spacedim:=3;
+if Length(arg)=3 then
+    spacedim:=arg[3];
+fi;
+
+if IsInt(arg[1]) then
+    IT:=arg[1];
+    GG:=SpaceGroupIT(spacedim,IT);
+    R:=SGC_ResolutionSpaceGroup(GG,n+1);
+elif IsGroup(arg[1]) then
+    GG:=arg[1];
+    R:=SGC_ResolutionSpaceGroup(GG,n+1);
+else
+    R:=arg[1];
+fi;
+
+return SGC_Mod2RingGeneratorsForTargets(R,[1..n]);
 end;
 
 #####################################################################
@@ -560,7 +580,7 @@ end;
 
 SGC_NewRelationReducer:=function(gensLett, genDegrees, relationsByDegree, degree)
 local monomials, vectorLength, monomialKeys, keyDictionary, monomialKey,
-      encode, span, relationProductCount, k, relDegree, m, relation, row,
+      encode, span, seedRows, relationProductCount, k, relDegree, m, relation, row,
       T, i;
 monomials := SGC_MonomialsOfDegree(gensLett, genDegrees, degree);
 vectorLength := Length(monomials)+1;
@@ -605,7 +625,7 @@ local row, term, pos;
     od;
     return row;
 end;
-span := SGC_NewSpanTesterMod2(SGC_SparseMat(0,vectorLength));
+seedRows := [];
 relationProductCount := 0;
 for k in [1..degree-2] do
     relDegree := degree-k;
@@ -614,12 +634,20 @@ for k in [1..degree-2] do
         for m in SGC_MonomialsOfDegree(gensLett,genDegrees,k) do
             for relation in relationsByDegree[relDegree] do
                 row := encode(List(relation,term->m+term));
-                span.addIfIndependent(row);
+                Add(seedRows,row);
                 relationProductCount := relationProductCount+1;
             od;
         od;
     fi;
 od;
+if Length(seedRows) = 0 then
+    span := SGC_NewSpanTesterMod2(SGC_SparseMat(0,vectorLength));
+else
+    span := SGC_NewSpanTesterMod2(seedRows);
+fi;
+#The span tester retains only its row basis, so release the potentially much
+#larger canonical seed family immediately after the one-time factorization.
+seedRows := [];
 T := rec(degree := degree, monomials := monomials, vectorLength := vectorLength,
          relationProductCount := relationProductCount, rank := span.rank(),
          encode := encode);
@@ -671,13 +699,13 @@ end;
 
 Mod2RingGensAndRels:=function(arg)
 local
-        R,n,GG,IT,Gen1,Gen2,Gen3,Gen4,Gen5,Gen6,GenByDeg,GenOffset,
-        GensGAP6,spacedim,GenDimAll,GenDegAll,
+        R,n,GG,IT,Gen1,GenByDeg,GenOffset,
+        GensGAP6,spacedim,generatorDegree,GenDimAll,GenDegAll,
         Gens,GensLett,zeroH,CupRelByDeg,SolverCache,CB,
-        IToPosition,NewDegreeState,ProcessCandidate,ProcessCupFamily,
+        IToPosition,NewDegreeState,EnsureReducer,ProcessCandidate,ProcessCupFamily,
         ProcessDegree2,FinalizeDegree,DegreeState,
-        state,family,r,i,j,x,row,M1,BasisImaged2,
-        returnData,maxRelationDegree,outputDegree,relations,generatorNames,
+        state,family,r,
+        returnData,maxRelationDegree,outputDegree,relations,relation,generatorNames,
         ringData,mono;
 
 #Arguments: arg[1] = IT (# of space group); arg[2] = spacedim (2 or 3, default 3);
@@ -685,6 +713,7 @@ local
 #           arg[5] = true requests structured, silent output (internal use);
 #           arg[6] = optional explicit relation-degree cap (internal use);
 #           arg[7] = optional generator names (internal use for an untagged R).
+#           arg[8] = optional invocation-local converter list (internal use).
 #Without arg[6], the highest relation degree is derived from the resolution length
 #as n := Length(Size(R))-1.
 #e.g.: Mod2RingGensAndRels(89);                 #builds its own resolution+generators
@@ -719,10 +748,18 @@ if Length(arg)<=2 then
     GG:=SpaceGroupIT(spacedim,IT);
     n:=SGC_MaxRelationDegreeForIT(IT);
     R:=SGC_ResolutionSpaceGroup(GG,n+1);
-    Gens:=Mod2RingGenerators(R,4,spacedim);
+    generatorDegree:=4;
+    if (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
+        generatorDegree:=6;
+    fi;
+    Gens:=Mod2RingGenerators(R,generatorDegree,spacedim);
 elif Length(arg) = 3 then
     R:=arg[3];
-    Gens:=Mod2RingGenerators(R,4,spacedim);
+    generatorDegree:=4;
+    if (IT in SGC_Degree6GeneratorGroups) = true and Length(Size(R)) >= 7 then
+        generatorDegree:=6;
+    fi;
+    Gens:=Mod2RingGenerators(R,generatorDegree,spacedim);
 else
     R:=arg[3];
     Gens:=arg[4];
@@ -742,16 +779,11 @@ od;
 if not (Length(Gens) >= 6 and IsBound(Gens[6]))
    and IT <> fail and (IT in SGC_Degree6GeneratorGroups) = true
    and Length(Size(R)) >= 7 then
-    GensGAP6:=Mod2RingGenerators(R,6,spacedim);
+    GensGAP6:=SGC_Mod2RingGeneratorsForTargets(R,[6]);
     GenByDeg[6]:=GensGAP6[6];
 fi;
 
 Gen1:=GenByDeg[1];
-Gen2:=GenByDeg[2];
-Gen3:=GenByDeg[3];
-Gen4:=GenByDeg[4];
-Gen5:=GenByDeg[5];
-Gen6:=GenByDeg[6];
 GenDimAll:=List(GenByDeg,Length);
 GenOffset:=[];
 GenOffset[1]:=0;
@@ -785,9 +817,15 @@ if maxRelationDegree <> fail then
     fi;
     n:=maxRelationDegree;
 fi;
-CB:=[];
+if Length(arg) >= 8 then
+    CB:=arg[8];
+else
+    CB:=[];
+fi;
 for r in [1..n] do
-    CB[r]:=CR_Mod2CocyclesAndCoboundaries(R,r,true);
+    if not IsBound(CB[r]) then
+        CB[r]:=CR_Mod2CocyclesAndCoboundaries(R,r,true);
+    fi;
 od;
 zeroH:=[];
 for r in [1..n] do
@@ -805,6 +843,20 @@ return rec(
     boundaries:=[],
     combined:=[]
 );
+end;
+
+EnsureReducer:=function(target)
+if target.reducer = fail then
+    target.reducer:=SGC_NewRelationReducer(
+        GensLett,GenDegAll,CupRelByDeg,target.degree);
+    if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
+        ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(
+            degree:=target.reducer.degree,
+            relationProductCount:=target.reducer.relationProductCount,
+            rank:=target.reducer.rank
+        ));
+    fi;
+fi;
 end;
 
 ProcessCandidate:=function(target,candidate,letter,useReducer)
@@ -847,17 +899,21 @@ else
     fi;
 fi;
 if (letter in target.letters) = false then
-    if useReducer = false
-       or target.reducer.addIfIndependent(target.reducer.encode(solrel)) then
+    if useReducer = false then
         Add(target.relations,solrel);
+    else
+        EnsureReducer(target);
+        if target.reducer.addIfIndependent(target.reducer.encode(solrel)) then
+            Add(target.relations,solrel);
+        fi;
     fi;
 fi;
 end;
 
 ProcessCupFamily:=function(target,cupFamily)
 local source,factors,factorLetters,sourceIndex,sourceClass,sourceLetter,
-      factorIndices,factorIndex,genuinePosition,products,
-      uCocycle,uChainMap,ww,vCocycle,uvCocycle,w,term,sw,k,
+      factorCocycles,factorIndices,factorIndex,genuinePosition,products,
+      productPosition,outputConverter,k,
       letter,useReducer;
 source:=DegreeState[cupFamily.sourceDegree];
 if source.isRaw then
@@ -867,39 +923,18 @@ factors:=GenByDeg[cupFamily.factorDegree];
 factorLetters:=GensLett{[
     GenOffset[cupFamily.factorDegree]+1..
     GenOffset[cupFamily.factorDegree]+Length(factors)]};
+factorCocycles:=List(factors,
+    v->CB[cupFamily.factorDegree].classToCocycle(v));
+if target.isRaw then
+    outputConverter:=fail;
+else
+    outputConverter:=CB[target.degree];
+fi;
 for sourceIndex in [1..Length(source.basis)] do
     sourceClass:=source.basis[sourceIndex];
     sourceLetter:=source.letters[sourceIndex];
     if cupFamily.restrictWidth = 0
        or ForAll([1..cupFamily.restrictWidth],k->sourceLetter[k]=0) then
-        if target.isRaw then
-            uCocycle:=CB[cupFamily.sourceDegree].classToCocycle(sourceClass);
-            uChainMap:=CR_ChainMapFromCocycle(R,uCocycle,
-                cupFamily.sourceDegree,cupFamily.factorDegree);
-            ww:=[];
-            for k in [1..R!.dimension(target.degree)] do
-                Add(ww,uChainMap([[k,1]]));
-            od;
-            products:=[];
-            for vCocycle in List(factors,
-                    v->CB[cupFamily.factorDegree].classToCocycle(v)) do
-                uvCocycle:=[];
-                for k in [1..R!.dimension(target.degree)] do
-                    w:=ww[k];
-                    sw:=0;
-                    for term in w do
-                        sw:=sw+vCocycle[AbsoluteValue(term[1])];
-                    od;
-                    uvCocycle[k]:=sw mod 2;
-                od;
-                Add(products,uvCocycle);
-            od;
-        else
-            products:=Mod2CupProducts(R,sourceClass,factors,
-                cupFamily.sourceDegree,cupFamily.factorDegree,
-                CB[cupFamily.sourceDegree],CB[cupFamily.factorDegree],
-                CB[target.degree]);
-        fi;
         if cupFamily.candidateOrder = "unorderedPairs" then
             genuinePosition:=Position(factorLetters,sourceLetter);
             if genuinePosition = fail then
@@ -909,29 +944,47 @@ for sourceIndex in [1..Length(source.basis)] do
         else
             factorIndices:=[1..Length(factors)];
         fi;
+        products:=SGC_Mod2CupProductsPrepared(
+            R,sourceClass,factorCocycles{factorIndices},
+            cupFamily.sourceDegree,cupFamily.factorDegree,
+            CB[cupFamily.sourceDegree],outputConverter);
         useReducer:=cupFamily.candidateOrder = "cartesian";
-        for factorIndex in factorIndices do
+        for productPosition in [1..Length(factorIndices)] do
+            factorIndex:=factorIndices[productPosition];
             letter:=sourceLetter+
                 GensLett[GenOffset[cupFamily.factorDegree]+factorIndex];
-            ProcessCandidate(target,products[factorIndex],letter,useReducer);
+            ProcessCandidate(target,products[productPosition],letter,useReducer);
         od;
     fi;
 od;
 end;
 
 ProcessDegree2:=function(target)
-local products,sourceIndex,factorIndex,letter;
-products:=List(Gen1,u->Mod2CupProducts(R,u,Gen1,1,1,
-    CB[1],CB[1],CB[2]));
+local factorCocycles,productRows,products,factorIndices,
+      sourceIndex,factorIndex,productPosition,letter;
+factorCocycles:=List(Gen1,v->CB[1].classToCocycle(v));
+productRows:=[];
 for sourceIndex in [1..Length(Gen1)] do
-    for factorIndex in [(sourceIndex+1)..Length(Gen1)] do
+    factorIndices:=[];
+    if sourceIndex < Length(Gen1) then
+        factorIndices:=[sourceIndex+1..Length(Gen1)];
+    fi;
+    Add(factorIndices,sourceIndex);
+    products:=SGC_Mod2CupProductsPrepared(
+        R,Gen1[sourceIndex],factorCocycles{factorIndices},1,1,CB[1],CB[2]);
+    productRows[sourceIndex]:=rec(indices:=factorIndices,products:=products);
+od;
+for sourceIndex in [1..Length(Gen1)] do
+    for productPosition in [1..Length(productRows[sourceIndex].indices)-1] do
+        factorIndex:=productRows[sourceIndex].indices[productPosition];
         letter:=GensLett[sourceIndex]+GensLett[factorIndex];
-        ProcessCandidate(target,products[sourceIndex][factorIndex],letter,false);
+        ProcessCandidate(target,
+            productRows[sourceIndex].products[productPosition],letter,false);
     od;
 od;
 for sourceIndex in [1..Length(Gen1)] do
     letter:=GensLett[sourceIndex]+GensLett[sourceIndex];
-    ProcessCandidate(target,products[sourceIndex][sourceIndex],letter,false);
+    ProcessCandidate(target,Last(productRows[sourceIndex].products),letter,false);
 od;
 end;
 
@@ -948,6 +1001,10 @@ if target.isRaw = false
           Length(target.letters)-CB[target.degree].Mod2Cohomologydim,"\n");
 fi;
 CupRelByDeg[target.degree]:=target.relations;
+#No later target solves against this degree's growing candidate basis or uses
+#its reducer. Drop the invocation-local factorizations before proceeding.
+target.reducer:=fail;
+SolverCache.entries:=[];
 end;
 
 state:=NewDegreeState(1,false);
@@ -958,17 +1015,6 @@ DegreeState[1]:=state;
 for r in [2..n] do
     state:=NewDegreeState(r,false);
     DegreeState[r]:=state;
-    if r >= 3 then
-        state.reducer:=SGC_NewRelationReducer(
-            GensLett,GenDegAll,CupRelByDeg,r);
-        if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-            ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(
-                degree:=state.reducer.degree,
-                relationProductCount:=state.reducer.relationProductCount,
-                rank:=state.reducer.rank
-            ));
-        fi;
-    fi;
     if r = 2 then
         ProcessDegree2(state);
     else
@@ -985,47 +1031,14 @@ outputDegree:=n;
 if IT <> fail and n = 5 and maxRelationDegree = fail then
     state:=NewDegreeState(6,true);
     DegreeState[6]:=state;
-    M1:=[];
-    for i in [1..R!.dimension(6)] do
-        row:=List([1..R!.dimension(5)],j->0);
-        for x in R!.boundary(6,i) do
-            j:=AbsoluteValue(x[1]);
-            row[j]:=row[j]+SignInt(x[1]);
-        od;
-        for j in [1..R!.dimension(5)] do
-            row[j]:=RemInt(row[j],2);
-        od;
-        M1[i]:=row;
-    od;
-    if M1 = [] then
-        BasisImaged2:=[];
-    else
-        BasisImaged2:=BaseMat(TransposedMat(M1)*Z(2));
-    fi;
-    state.boundaries:=BasisImaged2;
+    state.boundaries:=SGC_RowBasisMod2(SGC_SparseBoundaryMat(R,6,true));
     state.combined:=ShallowCopy(state.boundaries);
-    state.reducer:=SGC_NewRelationReducer(
-        GensLett,GenDegAll,CupRelByDeg,6);
-    if IsBoundGlobal("SGC_RELATION_REDUCER_OBSERVER") then
-        ValueGlobal("SGC_RELATION_REDUCER_OBSERVER")(rec(
-            degree:=state.reducer.degree,
-            relationProductCount:=state.reducer.relationProductCount,
-            rank:=state.reducer.rank
-        ));
-    fi;
     for family in SGC_DegreeCupFamilies(GenDimAll,6) do
         ProcessCupFamily(state,family);
     od;
     FinalizeDegree(state);
     outputDegree:=6;
 fi;
-
-relations:=[];
-for r in [2..outputDegree] do
-    if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
-        Add(relations,[r,CupRelByDeg[r]]);
-    fi;
-od;
 
 if Length(arg) >= 7 then
     generatorNames:=arg[7];
@@ -1035,22 +1048,6 @@ fi;
 if Length(generatorNames) <> Sum(GenDimAll) then
     Error("Mod2RingGensAndRels: generator-name count does not match generator count for IT=",IT,"\n");
 fi;
-
-ringData:=rec(
-    IT:=IT,
-    generators:=rec(
-        names:=ShallowCopy(generatorNames),
-        degrees:=ShallowCopy(GenDegAll),
-        classes:=ShallowCopy(GenByDeg)
-    ),
-    relations:=relations,
-    relationsByDegree:=CupRelByDeg,
-    bases:=List([1..Minimum(outputDegree,4)],
-        r->DegreeState[r].letters),
-    generatorDimensions:=ShallowCopy(GenDimAll),
-    generatorDegrees:=ShallowCopy(GenDegAll),
-    maxRelationDegree:=n
-);
 
 if not returnData then
     mono:=List(List([1..Sum(GenDimAll)],x->GensLett[x]),
@@ -1075,23 +1072,43 @@ if not returnData then
     for r in [2..outputDegree] do
         if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
             Print(Concatenation("R",String(r),":  "));
-            List(CupRelByDeg[r],
-                x->PrintMonomialString(x,GenDimAll,"+",generatorNames));
+            for relation in CupRelByDeg[r] do
+                PrintMonomialString(relation,GenDimAll,"+",generatorNames);
+            od;
             Print("\n");
         fi;
     od;
+    return List([1..Minimum(outputDegree,4)],r->DegreeState[r].letters);
 fi;
 
-if returnData then
-    return ringData;
-fi;
-return ringData.bases;
+relations:=[];
+for r in [2..outputDegree] do
+    if IsBound(CupRelByDeg[r]) and Length(CupRelByDeg[r]) > 0 then
+        Add(relations,[r,CupRelByDeg[r]]);
+    fi;
+od;
+ringData:=rec(
+    IT:=IT,
+    generators:=rec(
+        names:=ShallowCopy(generatorNames),
+        degrees:=ShallowCopy(GenDegAll),
+        classes:=ShallowCopy(GenByDeg)
+    ),
+    relations:=relations,
+    relationsByDegree:=CupRelByDeg,
+    bases:=List([1..Minimum(outputDegree,4)],
+        r->DegreeState[r].letters),
+    generatorDimensions:=ShallowCopy(GenDimAll),
+    generatorDegrees:=ShallowCopy(GenDegAll),
+    maxRelationDegree:=n
+);
+return ringData;
 end;
 #####################################################################
 #####################################################################
 
 SGC_PrintMod2RingData:=function(Data)
-local mono, pair, letters;
+local mono, pair, relation, letters;
 
 letters:=CohomologyBasis(List([1..Length(Data.generators.names)],i->1));
 mono:=List(letters,x->Letter2Monomial(x,Data.generatorDimensions,Data.generators.names));
@@ -1103,7 +1120,9 @@ else
 fi;
 for pair in Data.relations do
     Print(Concatenation("R", String(pair[1]), ":  "));
-    List(pair[2],x->PrintMonomialString(x,Data.generatorDimensions,"+",Data.generators.names));
+    for relation in pair[2] do
+        PrintMonomialString(relation,Data.generatorDimensions,"+",Data.generators.names);
+    od;
     Print("\n");
 od;
 end;
@@ -1119,7 +1138,7 @@ PointGroupTranslationExtension:=function(arg)
 local
     Gs,arithmeticNo,ZZZ,Gpt,R,C,Homo,
     T1,T2,T3,elem,eleml,conjT1,conjT2,conjT3,
-    i,j,k,l,rep,rep1,flag;
+    i,j,k,l,rep,flag;
     
 
 Gs:=[Group([(1,2)]),Group([(1,2),(3,4)]),Group([(1,2),(3,4),(5,6)]),Group([(1,3)(2,4),(1,2,3,4)]),Group([(1,3)(2,4),(1,2,3,4),(5,6)]),Group([(1,3)(2,4),(1,3)(5,6),(1,4)(2,3)(5,6)]),Group([(1,3)(2,4),(1,3)(5,6),(1,4)(2,3)(5,6),(7,8)]),Group([(1,2,3)]),Group([(1,2,3),(4,5)]),Group([(1,2,3),(2,3)(4,5)]),Group([(1,2,3),(2,3)(4,5),(6,7)]),Group([(1,2,3),(4,5),(6,7)]),Group([(1,2,3),(2,3)(4,5),(6,7),(8,9)]),Group([(1,2)(3,4),(1,3)(2,4),(3,2,1)]),Group([(1,2)(3,4),(1,3)(2,4),(3,2,1),(5,6)]),Group([(1,2)(3,4),(1,3)(2,4),(3,2,1),(1,2)]),Group([(1,2)(3,4),(1,3)(2,4),(3,2,1),(1,2),(5,6)])];
@@ -1185,15 +1204,14 @@ end;
 #####################################################################
 IrreducibleWyckoffPoints:=function(arg)
 local
-    IT, Dim, SG, Rec, IWPs, x,
+    IT, SG, Rec, IWPs, x,
     WyckoffPosRelations, WyckoffGraphRecord;
     
 #####################################################################
 WyckoffPosRelations := function( W )
-    local S, T, d, len, gens, G, L, m, O, o, i, j, k, Si, Sj, index, lst;
+    local S, d, len, gens, G, L, m, O, o, i, j, k, Si, Sj, index;
 
     S := WyckoffSpaceGroup( W[1] );
-    T := TranslationBasis( S );
     d := DimensionOfMatrixGroup( S ) - 1;
     len  := Length( W );
     gens := GeneratorsOfGroup( S );
@@ -1214,8 +1232,7 @@ WyckoffPosRelations := function( W )
             Si := WyckoffStabilizer( W[i] );
             index := Size(Sj) / Size(Si);
             if Length(L[j].basis) < Length(L[i].basis) and IsInt(index) then
-                lst := Filtered(O,o->IsSubspaceAffineSubspaceLattice(o,L[j]));
-                m[j][i] := Length( lst );
+                m[j][i] := Number(O,o->IsSubspaceAffineSubspaceLattice(o,L[j]));
             fi;
         od;
     od;
@@ -1250,15 +1267,11 @@ WyckoffGraphRecord := function( lst )
 
     m := WyckoffPosRelations( List( L, x -> x.wypos ) );
 
-    R := rec( levels   := [],
-              classes  := [],
-              vertices := [],
+    R := rec( vertices := [],
               edges    := [] );
 
     for i in [1..Length(L)] do
         level := [ L[i].dim, L[i].size ];
-        AddSet( R.levels, level );
-        AddSet( R.classes, [ L[i].class, level ] );
         Add( R.vertices, [ L[i].wypos, level, L[i].class ] );
         for j in [1..i-1] do
             if m[j][i]<>0 then Add( R.edges, [ i, j, m[j][i] ] ); fi;
@@ -1339,16 +1352,15 @@ end;
 SGC_CohomologyData:=function(arg)
 local
     IT, maxDegree, generatorNames, totalGeneratorCount,
-    PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind, PGMat33Dict,
+    PGGen, PGGen33, PGMat33, PGMatinv, PGind, PGMat33Dict,
     o1,o2,o3,o4,o5,
     R,CB,
     MatToPow,GapToPow,GapToPowCache,Fbarhomotopyindinv,
     Homotopydeg1,Homotopydeg2,Homotopydeg3,
-    func,funcs,receive,
+    func,funcs,
     Gen1, Gen2, Gen3, Gen4, Gen6, GensGAP, requiredGeneratorDegree,
-    Gen3Failed, Decomp3, dimH1, dimH2, known, rk0, gcand, savedBreakOnError,
     RingData,
-    i,j,k,p,x,y;
+    mat,i,p;
 
 MatToPow:=function(mat)            #given 4x4 matrix, output the list of powers of group generators
 local i, mat33, trans;
@@ -1415,7 +1427,6 @@ if Length(arg) >= 2 then
 fi;
 
 PGMat33 := [];
-PGMat := [];     #forward 4x4 point-group representatives; PGMat[i] = PGMatinv[i]^(-1)
 PGMatinv := [];
 PGind := [];
 
@@ -1427,22 +1438,21 @@ PGGen33 := List([1..Length(PGGen)],k->List([1..3],i->List([1..3],j->PGGen[k][i,j
 if Length(PGGen) = 0 then
     Append(PGind,[[]]);
     PGMat33:=[[[1,0,0],[0,1,0],[0,0,1]]];
-    PGMat:=[[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]];
     PGMatinv:=[[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]];
 elif Length(PGGen) = 1 then
     for o1 in [0..(Order(PGGen33[1])-1)] do
         Append(PGind,[[o1]]);
         Append(PGMat33,[PGGen33[1]^o1]);
-        Append(PGMat,[PGGen[1]^o1]);
-        Append(PGMatinv,[PGMat[Length(PGMat)]^(-1)]);
+        mat:=PGGen[1]^o1;
+        Append(PGMatinv,[mat^(-1)]);
     od;
 elif Length(PGGen) = 2 then
     for o1 in [0..(Order(PGGen33[1])-1)] do
         for o2 in [0..1] do  #normal form: IT 75-88 have Order(PGGen[2])=4 but PGGen[2]^2=PGGen[1]
             Append(PGind,[[o1,o2]]);
             Append(PGMat33,[PGGen33[1]^o1*PGGen33[2]^o2]);
-            Append(PGMat,[PGGen[1]^o1*PGGen[2]^o2]);
-            Append(PGMatinv,[PGMat[Length(PGMat)]^(-1)]);
+            mat:=PGGen[1]^o1*PGGen[2]^o2;
+            Append(PGMatinv,[mat^(-1)]);
         od;
     od;
 elif Length(PGGen) = 3 then
@@ -1451,8 +1461,8 @@ elif Length(PGGen) = 3 then
             for o3 in [0..(Order(PGGen33[3])-1)] do
                 Append(PGind,[[o1,o2,o3]]);
                 Append(PGMat33,[PGGen33[1]^o1*PGGen33[2]^o2*PGGen33[3]^o3]);
-                Append(PGMat,[PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3]);
-                Append(PGMatinv,[PGMat[Length(PGMat)]^(-1)]);
+                mat:=PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3;
+                Append(PGMatinv,[mat^(-1)]);
             od;
         od;
     od;
@@ -1463,8 +1473,8 @@ elif Length(PGGen) = 4 then
                 for o4 in [0..(Order(PGGen33[4])-1)] do
                     Append(PGind,[[o1,o2,o3,o4]]);
                     Append(PGMat33,[PGGen33[1]^o1*PGGen33[2]^o2*PGGen33[3]^o3*PGGen33[4]^o4]);
-                    Append(PGMat,[PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3*PGGen[4]^o4]);
-                    Append(PGMatinv,[PGMat[Length(PGMat)]^(-1)]);
+                    mat:=PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3*PGGen[4]^o4;
+                    Append(PGMatinv,[mat^(-1)]);
                 od;
             od;
         od;
@@ -1477,8 +1487,8 @@ elif Length(PGGen) = 5 then
                     for o5 in [0..(Order(PGGen33[5])-1)] do
                         Append(PGind,[[o1,o2,o3,o4,o5]]);
                         Append(PGMat33,[PGGen33[1]^o1*PGGen33[2]^o2*PGGen33[3]^o3*PGGen33[4]^o4*PGGen33[5]^o5]);
-                        Append(PGMat,[PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3*PGGen[4]^o4*PGGen[5]^o5]);
-                        Append(PGMatinv,[PGMat[Length(PGMat)]^(-1)]);
+                        mat:=PGGen[1]^o1*PGGen[2]^o2*PGGen[3]^o3*PGGen[4]^o4*PGGen[5]^o5;
+                        Append(PGMatinv,[mat^(-1)]);
                     od;
                 od;
             od;
@@ -1535,78 +1545,27 @@ for func in funcs[2] do
     Append(Gen2,[CB[2].cocycleToClass(List([1..R!.dimension(2)],x->RemInt(Sum(List(Homotopydeg2[x],y->func(GapToPow(y[1]),GapToPow(y[2])))),2)))]);
 od;
 
-#Explicit degree-3 cocycle functions are evaluated on the resolution via the
-#contracting homotopy. For a few groups (the R-suffixed generator names of
-#IT 225/227/229) the stored function does not transport to a cocycle on this
-#resolution -- historically those slots carried vectors hardcoded in the old
-#ResolutionAlmostCrystalGroup basis. Such slots are now filled deterministically
-#with GAP-computed ring generators, chosen independent of the degree-3
-#decomposable classes so they are genuine generators in the current basis.
-#The LSM section is unaffected: it evaluates the explicit functions directly at
-#topological-invariant configurations and has its own full-rank consistency check.
+#Explicit degree-3 cocycle functions are evaluated directly on the resolution
+#via the contracting homotopy. The current data is required to transport
+#without a fallback replacement.
 Gen3:=[];
-Gen3Failed:=[];
-#BreakOnError must be off while probing, or a failed transport would drop a
-#batch-mode session into the break loop instead of unwinding to the catch.
-savedBreakOnError := BreakOnError;
 for func in funcs[3] do
-    BreakOnError := false;
-    receive := CALL_WITH_CATCH(function()
-        return CB[3].cocycleToClass(List([1..R!.dimension(3)],x->RemInt(Sum(List(Homotopydeg3[x],y->func(GapToPow(y[1]),GapToPow(y[2]),GapToPow(y[3])))),2)));
-    end, []);
-    BreakOnError := savedBreakOnError;
-    if receive[1] = true and receive[2] <> fail then
-        Append(Gen3,[receive[2]]);
-    else
-        Append(Gen3,[fail]);
-        Append(Gen3Failed,[Length(Gen3)]);
-    fi;
+    Append(Gen3,[CB[3].cocycleToClass(List([1..R!.dimension(3)],x->
+        RemInt(Sum(List(Homotopydeg3[x],y->
+            func(GapToPow(y[1]),GapToPow(y[2]),GapToPow(y[3])))),2)))]);
 od;
 
-#Compute generic generators once, and only to the highest degree actually
-#needed. Explicit Gen1/Gen2 and successfully transported Gen3 remain authoritative.
+#Compute only the generic higher-degree generator target consumed by Context.
+#Explicit Gen1/Gen2/Gen3 remain authoritative.
 requiredGeneratorDegree:=0;
 if maxDegree >= 6 and (IT in SGC_Degree6GeneratorGroups) = true then
     requiredGeneratorDegree:=6;
 elif maxDegree >= 4 and (IT in SGC_Degree4GeneratorGroups) = true then
     requiredGeneratorDegree:=4;
-elif Length(Gen3Failed) > 0 then
-    #Keep the legacy degree-4 pass for full Contexts, while the dedicated
-    #Wyckoff path stops at the degree-3 data it actually consumes.
-    requiredGeneratorDegree:=Minimum(4,maxDegree);
 fi;
 if requiredGeneratorDegree > 0 then
-    GensGAP:=Mod2RingGenerators(R,requiredGeneratorDegree,3);
-fi;
-
-if Length(Gen3Failed) > 0 then
-    #Degree-3 decomposable classes: cup products H^1 x H^2 (this includes all
-    #triple products of degree-1 classes, since H^1 x H^1 lands in H^2).
-    dimH1 := Length(CB[1].cocycleToClass(List([1..R!.dimension(1)],x->0)));
-    dimH2 := Length(CB[2].cocycleToClass(List([1..R!.dimension(2)],x->0)));
-    Decomp3 := [];
-    for x in CohomologyBasis(List([1..dimH1],i->1)) do
-        for y in CohomologyBasis(List([1..dimH2],i->1)) do
-            Append(Decomp3,[Mod2CupProduct(R,x,y,1,2,CB[1],CB[2],CB[3])]);
-        od;
-    od;
-    #Steinitz-style completion: the known span is the decomposables plus the
-    #successfully transported explicit classes; each failed slot takes the first
-    #GAP generator that enlarges that span (Mod2RingGenerators guarantees its
-    #degree-3 output spans H^3 modulo the decomposables, so enough exist).
-    known := Concatenation(Decomp3, Filtered(Gen3, x -> x <> fail));
-    for k in Gen3Failed do
-        rk0 := SGC_RankMod2(known);
-        for gcand in GensGAP[3] do
-            if Gen3[k] = fail and SGC_RankMod2(Concatenation(known,[gcand])) > rk0 then
-                Gen3[k] := gcand;
-                Append(known,[gcand]);
-            fi;
-        od;
-        if Gen3[k] = fail then
-            Error("SpaceGroupCohomologyRingGapInterface: cannot complete degree-3 generator slot ", k, " for IT=", IT);
-        fi;
-    od;
+    GensGAP:=SGC_Mod2RingGeneratorsForTargets(
+        R,[requiredGeneratorDegree],CB);
 fi;
 
 #The explicit degree-3 cocycle functions must give linearly independent classes;
@@ -1636,7 +1595,7 @@ totalGeneratorCount:=Length(Gen1)+Length(Gen2)+Length(Gen3)+
                      Length(Gen4)+Length(Gen6);
 generatorNames:=GENNAMES[IT]{[1..totalGeneratorCount]};
 RingData := Mod2RingGensAndRels(
-    IT,3,R,[Gen1,Gen2,Gen3,Gen4,[],Gen6],true,maxDegree,generatorNames);
+    IT,3,R,[Gen1,Gen2,Gen3,Gen4,[],Gen6],true,maxDegree,generatorNames,CB);
 
 return rec(
     isSGCCohomologyContext := true,
@@ -1657,7 +1616,7 @@ local
     PGGen, PGGen33, PGMat33, PGMat, PGMatinv, PGind,
     PGMat33Dict, PGindDict, funcs,
     MatToPow, Invofg, TopoInvdeg3, Prodg1g2Pow, IndToElem, FuncVal,
-    LSMLett, Mat, mat2, vec, LSMMat, CountLSM,
+    LSMLett, Mat, mat2, mat2Square, trace, vec, LSMMat, LSMCount,
     g1, g2, g2Square, Candidates, candidate1, candidate2,
     pointIndex, x1, y1, z1, identityAffine, Span, addCandidate,
     scanCandidates, rank,
@@ -1838,7 +1797,7 @@ return out;
 end;
 
 FuncVal:=function(lett,v)                #Given a degree-3 monomial and argument (either g1,g1,g1 or g1,g2,g2 or g1,g2,g3), evaluate the cocycle.
-local deg,i,j,jval,k,val,lett1;
+local deg,i,j,k,val,lett1;
 deg := GensDeg1to4*lett;
 
 #Only degree-3 monomials reach this function (TopoInvdeg3 always passes
@@ -1863,7 +1822,6 @@ else                                                                   #if not a
     lett1[i] := lett1[i] - 1;
     for j in [1..Length(lett)] do
         if lett1[j] > 0 then
-            jval := lett1[j];        #label of generator stored in j; power of this generator stored in jval
             break;
         fi;
     od;
@@ -1878,12 +1836,19 @@ fi;
 return val;
 end;
 #####################################################################
-TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters,[matrices giving linear combination of letters])
-local gs,letters,solrels,vallist;
+TopoInvdeg3:=function(arg) #usage: TopoInvdeg3(list_of_group_elements,list_of_letters)
+local gs,letters,vallist,terms,EvaluateTerms,
+      a,b,c,d,invA,invB,ab,ba,ac,ca,bc,cb,ad,da,db,cd,dc,
+      invAb,invAc,invBc,aInvB,invBd,invAd,
+      invAinvB,invAinvBc,invAinvBd,abCd,aCd,
+      bSquare,cSquare,dSquare;
 
 gs := arg[1];               #List of group elements [g1] or [g1,g2] or [g1,g2,g3] at which the cocycles are evaluated
 letters := arg[2];          #List of letters representing the monomials
 vallist := fail;            #stays fail unless a topological-invariant formula matches below
+EvaluateTerms:=function(formulaTerms)
+return List(letters,x->Sum(List(formulaTerms,v->FuncVal(x,v))));
+end;
 
 if IsBoundGlobal("SGC_WP_TOPO_INV_OBSERVER") then
     ValueGlobal("SGC_WP_TOPO_INV_OBSERVER")(rec(
@@ -1893,65 +1858,104 @@ if IsBoundGlobal("SGC_WP_TOPO_INV_OBSERVER") then
     ));
 fi;
 
-
-if Length(arg) = 2 then
-    solrels := fail;
-else
-    solrels := arg[3];
-fi;
-
 if Length(gs) = 1 then
-    if Prodg1g2Pow(gs[1],gs[1]) = gs[1]*0 then
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[1],gs[1]]));                                    #Topo inv varphi1
+    a:=gs[1];
+    if Prodg1g2Pow(a,a) = a*0 then
+        vallist:=EvaluateTerms([[a,a,a]]);                 #Topo inv varphi1
     else
         Print("varphi(g,g,g) is not a topological invariant!!!!\n");
     fi;
 elif Length(gs) = 2 then
-    if (Prodg1g2Pow(gs[2],gs[2]) = gs[2]*0) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) then #Topo inv varphi2
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[2]])+FuncVal(x,[gs[2],gs[2],gs[1]]));
+    a:=gs[1]; b:=gs[2];
+    bSquare:=Prodg1g2Pow(b,b);
+    ab:=Prodg1g2Pow(a,b);
+    ba:=Prodg1g2Pow(b,a);
+    if bSquare = b*0 and ab = ba then                     #Topo inv varphi2
+        vallist:=EvaluateTerms([[a,b,b],[b,a,b],[b,b,a]]);
     else
         Print("varphi(g1,g2,g2) is not a topological invariant!!!!\n");
-        Print(gs[1],gs[2],"\n");
+        Print(a,b,"\n");
     fi;
 
 elif Length(gs) = 3 then
+    a:=gs[1]; b:=gs[2]; c:=gs[3];
+    invA:=Invofg(a); invB:=Invofg(b);
+    ab:=Prodg1g2Pow(a,b); ba:=Prodg1g2Pow(b,a);
+    ac:=Prodg1g2Pow(a,c); ca:=Prodg1g2Pow(c,a);
+    bc:=Prodg1g2Pow(b,c); cb:=Prodg1g2Pow(c,b);
+    invAb:=Prodg1g2Pow(invA,b);
+    invAc:=Prodg1g2Pow(invA,c);
+    invBc:=Prodg1g2Pow(invB,c);
+    aInvB:=Prodg1g2Pow(a,invB);
+    invAinvB:=Prodg1g2Pow(invA,invB);
+    invAinvBc:=Prodg1g2Pow(invAinvB,c);
 
-    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) then     #Topo inv varphi3
-
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[2],gs[1],gs[3]])+FuncVal(x,[gs[2],gs[3],gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-
-    elif ((Prodg1g2Pow(gs[2],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[2])) and (Prodg1g2Pow(gs[1],gs[3]) = Prodg1g2Pow(gs[3],gs[1])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2]))) then     #Topo inv tildevarphi for No. 7,26,36,39,46,57,62
-
-        vallist := List(letters,x->FuncVal(x,[gs[3],Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[1],Invofg(gs[2])])+FuncVal(x,[gs[3],gs[2],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),gs[3],Prodg1g2Pow(gs[1],Invofg(gs[2]))])+FuncVal(x,[gs[1],gs[3],gs[2]])+FuncVal(x,[gs[1],gs[3],Invofg(gs[2])])+FuncVal(x,[gs[2],gs[3],Invofg(gs[2])])+FuncVal(x,[Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[1],Invofg(gs[2])),gs[3]])+FuncVal(x,[gs[1],gs[2],gs[3]])+FuncVal(x,[gs[1],Invofg(gs[2]),gs[3]])+FuncVal(x,[gs[2],Invofg(gs[2]),gs[3]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(gs[2],gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 76 & 78
-
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],gs[3],gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 4
-
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
-
-    elif ((Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1]))) then     #Topo inv hatvarphi for No. 9,161
-
-        vallist := List(letters,x->FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])])+FuncVal(x,[gs[1],Prodg1g2Pow(Invofg(gs[1]),gs[3]),gs[1]])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[2]])+FuncVal(x,[gs[3],gs[1],gs[2]])+FuncVal(x,[gs[3],gs[2],gs[1]]));
+    if ab=ba and ac=ca and bc=cb then                  #Topo inv varphi3
+        terms:=[[a,b,c],[a,c,b],[b,a,c],[b,c,a],[c,a,b],[c,b,a]];
+        vallist:=EvaluateTerms(terms);
+    elif ba=invAb and ac=ca and bc=cb then             #tildevarphi: 7,26,36,39,46,57,62
+        terms:=[[c,ab,aInvB],[c,a,b],[c,a,invB],[c,b,invB],
+                [ab,c,aInvB],[a,c,b],[a,c,invB],[b,c,invB],
+                [ab,aInvB,c],[a,b,c],[a,invB,c],[b,invB,c]];
+        vallist:=EvaluateTerms(terms);
+    elif cb=invAc and ca=bc and ab=ba then             #hatvarphi: 76,78
+        terms:=[[a,b,invAc],[b,a,invAc],[a,invAc,a],
+                [b,c,b],[c,a,b],[c,b,a]];
+        vallist:=EvaluateTerms(terms);
+    elif ca=invAc and cb=invBc and ab=ba then          #hatvarphi: 4
+        terms:=[[a,b,invAinvBc],[b,a,invAinvBc],[a,invAc,b],
+                [b,invBc,a],[c,a,b],[c,b,a]];
+        vallist:=EvaluateTerms(terms);
+    elif ca=invBc and cb=invAc and ab=ba then          #hatvarphi: 9,161
+        terms:=[[a,b,invAinvBc],[b,a,invAinvBc],[a,invAc,a],
+                [b,invBc,b],[c,a,b],[c,b,a]];
+        vallist:=EvaluateTerms(terms);
     else
         Print("varphi(g1,g2,g3) is not a topological invariant!!!!\n");
     fi;
 
 elif Length(gs) = 4 then
-    if (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[2],gs[3]) = Prodg1g2Pow(gs[3],gs[2])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[3],gs[3]) = gs[2]) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) then     #Topo inv varphi3 for No. 19 and 198
+    a:=gs[1]; b:=gs[2]; c:=gs[3]; d:=gs[4];
+    invA:=Invofg(a); invB:=Invofg(b);
+    ab:=Prodg1g2Pow(a,b); ba:=Prodg1g2Pow(b,a);
+    ca:=Prodg1g2Pow(c,a); invAc:=Prodg1g2Pow(invA,c);
+    bc:=Prodg1g2Pow(b,c); cb:=Prodg1g2Pow(c,b);
+    ad:=Prodg1g2Pow(a,d); da:=Prodg1g2Pow(d,a);
+    db:=Prodg1g2Pow(d,b); invBd:=Prodg1g2Pow(invB,d);
+    cSquare:=Prodg1g2Pow(c,c); dSquare:=Prodg1g2Pow(d,d);
+    cd:=Prodg1g2Pow(c,d); dc:=Prodg1g2Pow(d,c);
+    invAinvB:=Prodg1g2Pow(invA,invB);
+    invAinvBc:=Prodg1g2Pow(invAinvB,c);
+    invAinvBd:=Prodg1g2Pow(invAinvB,d);
+    invBc:=Prodg1g2Pow(invB,c);
+    invAd:=Prodg1g2Pow(invA,d);
+    abCd:=Prodg1g2Pow(ab,cd);
+    aCd:=Prodg1g2Pow(a,cd);
 
-        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[1])]) + FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]]) + FuncVal(x,[gs[1],gs[2],Invofg(gs[2])])+ FuncVal(x,[gs[2],gs[1],Invofg(gs[2])]) + FuncVal(x,[gs[2],Invofg(gs[2]),gs[1]]) + FuncVal(x,[gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[3])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Invofg(gs[2]),gs[3]),gs[1]]) + FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]) + FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]]));
-
-    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(Prodg1g2Pow(gs[1],gs[2]),Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 29
-
-        vallist := List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
-
-    elif (Prodg1g2Pow(gs[1],gs[2]) = Prodg1g2Pow(gs[2],gs[1])) and (Prodg1g2Pow(gs[3],gs[1]) = Prodg1g2Pow(Invofg(gs[1]),gs[3])) and (Prodg1g2Pow(gs[3],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[3])) and (Prodg1g2Pow(gs[1],gs[4]) = Prodg1g2Pow(gs[4],gs[1])) and (Prodg1g2Pow(gs[4],gs[2]) = Prodg1g2Pow(Invofg(gs[2]),gs[4])) and (Prodg1g2Pow(gs[4],gs[4]) = gs[1]) and (Prodg1g2Pow(gs[4],gs[3]) = Prodg1g2Pow(gs[1],Prodg1g2Pow(gs[3],gs[4]))) then     #Topo inv varphi3 for No. 33
-
-        vallist :=
-        List(letters,x->FuncVal(x,[gs[2],gs[1],Invofg(gs[1])])+FuncVal(x,[gs[1],gs[2],Invofg(gs[1])])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[1],Invofg(gs[1]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[gs[2],gs[1],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[1],gs[2],Prodg1g2Pow(gs[3],gs[4])])+FuncVal(x,[gs[2],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[1],Prodg1g2Pow(gs[3],gs[4]),gs[2]])+FuncVal(x,[gs[3],Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2]])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[3],gs[2]])+FuncVal(x,[gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4]),Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[Prodg1g2Pow(Invofg(gs[1]),gs[4]),gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3])])+FuncVal(x,[gs[2],Prodg1g2Pow(Invofg(gs[2]),gs[3]),Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])])+FuncVal(x,[gs[3],gs[2],Prodg1g2Pow(Prodg1g2Pow(Invofg(gs[1]),Invofg(gs[2])),gs[4])]));
+    if ab=ba and ca=invAc and bc=cb and ad=da and db=invBd
+       and cSquare=b and dSquare=a then                #varphi3: 19,198
+        terms:=[[b,a,invA],[a,b,invA],[a,invA,b],
+                [a,b,invB],[b,a,invB],[b,invB,a],
+                [a,invAinvBc,invAinvBc],[invBc,a,invAinvBc],
+                [invBc,invBc,a],[b,invAinvBd,invAinvBd],
+                [invAd,b,invAinvBd],[invAd,invAd,b]];
+        vallist:=EvaluateTerms(terms);
+    elif ab=ba and ca=invAc and cb=invBc and ad=da and db=invBd
+         and dSquare=a and dc=abCd then                #varphi3: 29
+        terms:=[[b,a,invA],[a,b,invA],[b,invAinvBd,invAinvBd],
+                [invAd,b,invAinvBd],[a,invA,b],[invAd,invAd,b],
+                [b,a,cd],[a,b,cd],[a,cd,b],[c,invAd,b],[invAd,c,b],
+                [b,invAinvBd,invBc],[invAd,b,invBc],
+                [b,invBc,invAinvBd],[c,b,invAinvBd]];
+        vallist:=EvaluateTerms(terms);
+    elif ab=ba and ca=invAc and cb=invBc and ad=da and db=invBd
+         and dSquare=a and dc=aCd then                 #varphi3: 33
+        terms:=[[b,a,invA],[a,b,invA],[b,invAinvBd,invAinvBd],
+                [invAd,b,invAinvBd],[a,invA,b],[invAd,invAd,b],
+                [b,a,cd],[a,b,cd],[b,cd,b],[a,cd,b],
+                [c,invAd,b],[invAd,c,b],[b,invAinvBd,invBc],
+                [invAd,b,invBc],[b,invBc,invAinvBd],[c,b,invAinvBd]];
+        vallist:=EvaluateTerms(terms);
     fi;
 else
     Print("Wrong in checking topological invariant: Number of group elements is not between 1 and 4!!\n");
@@ -1959,10 +1963,7 @@ fi;
 if vallist = fail then      #no formula matched (or input flagged "not a topological invariant") -- fail loudly, not with an opaque unbound-variable error
     Error("TopoInvdeg3: no topological-invariant formula matched the given group element(s): ", gs, "\n");
 fi;
-if solrels = fail then
-    return GF2ToZ(vallist*Z(2));
-fi;
-return GF2ToZ((solrels*vallist)*Z(2));
+return GF2ToZ(vallist*Z(2));
 end;
 #####################################################################
 
@@ -1978,11 +1979,11 @@ Mat:=[];
 #First: record all the LSM TIs listed in the IWP table from gap/data.gi.
 #
 #
-CountLSM := [];
+LSMCount := 0;
 for x in IWP[IT] do
     if (x[2] = []) = false then
         Append(Mat,[TopoInvdeg3(x[2],Base3Lett)]);
-        Append(CountLSM,[x[2]]);
+        LSMCount:=LSMCount+1;
     fi;
 od;
 
@@ -2028,13 +2029,17 @@ for candidate2 in Candidates do
     if (IT <= 220) or (PGind[candidate2.pointIndex][3] = 0) then
         g2:=candidate2.powerVector;
         mat2:=candidate2.affineMatrix;
-        if mat2^2=identityAffine then
-            if Trace(mat2)=0 then                    #C2 rotation
+        trace:=Trace(mat2);
+        if trace=0 or trace=2 then
+            mat2Square:=mat2^2;
+        fi;
+        if trace=0 and mat2Square=identityAffine then #C2 rotation
                 vec:=TopoInvdeg3([g2],Base3Lett);
                 if addCandidate(vec) then
                     return;
                 fi;
-            elif Trace(mat2)=2 then                  #Mirror
+        elif trace=2 then
+            if mat2Square=identityAffine then         #Mirror
                 vec:=TopoInvdeg3([g2],Base3Lett);
                 if addCandidate(vec) then
                     return;
@@ -2049,12 +2054,12 @@ for candidate2 in Candidates do
                         fi;
                     fi;
                 od;
-            fi;
-        elif mat2^4=identityAffine and Trace(mat2)=2 then         #C4 rotation
-            g2Square:=Prodg1g2Pow(g2,g2);
-            vec:=TopoInvdeg3([g2,g2Square],Base3Lett);
-            if addCandidate(vec) then
-                return;
+            elif mat2Square^2=identityAffine then     #C4 rotation
+                g2Square:=Prodg1g2Pow(g2,g2);
+                vec:=TopoInvdeg3([g2,g2Square],Base3Lett);
+                if addCandidate(vec) then
+                    return;
+                fi;
             fi;
         fi;
     fi;
@@ -2062,12 +2067,13 @@ od;
 end;
 
 scanCandidates();
+Candidates:=[];
 rank:=Span.rank();
 
 if rank = Length(Base3Lett) and rank = Length(Mat) then
 
     LSMMat := List(TransposedMat(InverseMatMod(Mat,2)));
-    LSMLett := List([1..Length(CountLSM)],x->LSMMat[x]);
+    LSMLett := List([1..LSMCount],x->LSMMat[x]);
 else
     Error("WPCohomologyTable: full rank not achieved: ", rank,
           "!=", Length(Base3Lett), " or ", rank,
@@ -2219,20 +2225,29 @@ end;
 #####################################################################
 
 WPCohomologyClass:=function(arg)
-local WPs, Context, WPData, rawLabels, coordinate, wp, equalPosition, key, i, Class;
+local WPs, Context, WPData, ValidateWPs, rawLabels, coordinate, wp,
+      equalPosition, key, i, Class;
+
+ValidateWPs:=function(value)
+if not IsList(value) or IsString(value)
+   or not ForAll(value,IsString) then
+    Error("WPCohomologyClass: WPs must be a list of Wyckoff-position labels\n");
+fi;
+return value;
+end;
 
 if Length(arg) >= 2 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
    and IsBound(arg[1].isSGCCohomologyContext)
    and arg[1].isSGCCohomologyContext = true then
     Context:=arg[1];
     if Length(arg) = 2 then
-        WPs:=arg[2];
+        WPs:=ValidateWPs(arg[2]);
         WPData:=SGC_WPCohomologyData(Context);
     elif Length(arg) = 3 and (IsRecord(arg[2]) or IsComponentObjectRep(arg[2]))
          and IsBound(arg[2].isSGCWPCohomologyData)
-         and arg[2].isSGCWPCohomologyData = true then
+        and arg[2].isSGCWPCohomologyData = true then
         WPData:=arg[2];
-        WPs:=arg[3];
+        WPs:=ValidateWPs(arg[3]);
         if not IsIdenticalObj(WPData.context,Context) then
             Error("WPCohomologyClass: WPData belongs to a different Context\n");
         fi;
@@ -2240,19 +2255,15 @@ if Length(arg) >= 2 and (IsRecord(arg[1]) or IsComponentObjectRep(arg[1]))
         Error("WPCohomologyClass: expected (Context,WPs) or (Context,WPData,WPs)\n");
     fi;
 elif Length(arg) = 2 and IsInt(arg[1]) then
-    WPs:=arg[2];
+    WPs:=ValidateWPs(arg[2]);
     WPData:=SGC_WPCohomologyData(arg[1]);
     Context:=WPData.context;
 elif Length(arg) = 3 and IsInt(arg[1]) then
-    WPs:=arg[3];
+    WPs:=ValidateWPs(arg[3]);
     WPData:=SGC_WPCohomologyData(arg[1],arg[2]);
     Context:=WPData.context;
 else
     Error("WPCohomologyClass: expected prepared Context data or an IT signature\n");
-fi;
-if not IsList(WPs) or IsString(WPs)
-   or not ForAll(WPs,IsString) then
-    Error("WPCohomologyClass: WPs must be a list of Wyckoff-position labels\n");
 fi;
 rawLabels:=List(WPData.rawIWP,x->x[1]);
 coordinate:=List([1..Length(Context.ring.bases[3])],x->0);

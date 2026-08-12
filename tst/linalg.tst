@@ -125,6 +125,21 @@ gap> Relation13Fixture := function() local T; if not IsBoundGlobal("SGC_NewRelat
 gap> Relation13Fixture();
 [ [ [ 13 ] ], 1, 1 ]
 
+# Canonical lower-relation products are handed to the span tester as one seed
+# matrix.  This catches the quadratic rebuild path where the reducer instead
+# initialized an empty tester and inserted the four rows one at a time.
+gap> originalSpanTester := SGC_NewSpanTesterMod2;;
+gap> spanTesterWasReadOnly := IsReadOnlyGlobal("SGC_NewSpanTesterMod2");;
+gap> if spanTesterWasReadOnly then MakeReadWriteGlobal("SGC_NewSpanTesterMod2"); fi;;
+gap> reducerInitialDims := [];;
+gap> SGC_NewSpanTesterMod2 := function(M) Add(reducerInitialDims,SGC_MatDims(M)); return originalSpanTester(M); end;;
+gap> RelsBatch := [];; RelsBatch[2] := [[[2,0]],[[2,0]]];;
+gap> BatchSeedReducer := SGC_NewRelationReducer(CohomologyBasis([1,1]),[1,1],RelsBatch,3);;
+gap> SGC_NewSpanTesterMod2 := originalSpanTester;;
+gap> if spanTesterWasReadOnly then MakeReadOnlyGlobal("SGC_NewSpanTesterMod2"); fi;;
+gap> [reducerInitialDims,BatchSeedReducer.relationProductCount,BatchSeedReducer.rank];
+[ [ [ 4, 5 ] ], 4, 2 ]
+
 # End-to-end forced offload through CR_Mod2CocyclesAndCoboundaries (Task 5):
 # cohomology dims are basis-independent and must equal the native values,
 # and the call counter proves the external binary was actually exercised.

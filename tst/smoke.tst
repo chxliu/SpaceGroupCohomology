@@ -6,6 +6,19 @@ gap> START_TEST("SpaceGroupCohomology: smoke test");
 gap> Length(PGGens230) = 230 and Length(IWP) = 230 and Length(GENNAMES) = 230 and Length(funcs230) = 230;
 true
 
+# The legacy manual IWP reporter still returns the group count after its
+# internal graph-level scratch data was removed.  Silence its report here;
+# the public table tests below pin user-visible Wyckoff output.
+gap> manualIWPPrint := Print;;
+gap> manualIWPPrintWasReadOnly := IsReadOnlyGlobal("Print");;
+gap> if manualIWPPrintWasReadOnly then MakeReadWriteGlobal("Print"); fi;;
+gap> Print := function(arg) return; end;;
+gap> manualIWPCount := IrreducibleWyckoffPoints(1);;
+gap> Print := manualIWPPrint;;
+gap> if manualIWPPrintWasReadOnly then MakeReadOnlyGlobal("Print"); fi;;
+gap> manualIWPCount;
+1
+
 # Test 1: Simple triclinic group.  Instrument the existing pinned call to
 # guarantee that the compatibility wrapper constructs exactly one resolution,
 # and retain that resolution for the focused public-presentation checks below.
@@ -45,6 +58,28 @@ gap> if chainMapBuilderWasReadOnly then MakeReadOnlyGlobal("CR_ChainMapFromCocyc
 gap> [batchedCounted,chainMapBuildCount,chainMapEvaluationCount];
 [ [ [ 0, 0, 0 ], [ 1, 0, 0 ], [ 0, 1, 0 ] ], 1, 3 ]
 
+# The internal target helper prepares all needed converters but executes only
+# requested generator targets.  IT1 degree 3 needs three H2 left chain maps;
+# running the discarded degree-2 target as well would build six.
+gap> C3 := CR_Mod2CocyclesAndCoboundaries(Rapi,3,true);;
+gap> TargetOnlyGeneratorFixture := function()
+>     local oldBuilder,wasReadOnly,count,result;
+>     if not IsBoundGlobal("SGC_Mod2RingGeneratorsForTargets") then return fail; fi;
+>     oldBuilder:=CR_ChainMapFromCocycle;
+>     wasReadOnly:=IsReadOnlyGlobal("CR_ChainMapFromCocycle");
+>     if wasReadOnly then MakeReadWriteGlobal("CR_ChainMapFromCocycle"); fi;
+>     count:=0;
+>     CR_ChainMapFromCocycle:=function(arg) count:=count+1; return CallFuncList(oldBuilder,arg); end;
+>     result:=ValueGlobal("SGC_Mod2RingGeneratorsForTargets")(Rapi,[3],[C1,C2,C3]);
+>     CR_ChainMapFromCocycle:=oldBuilder;
+>     if wasReadOnly then MakeReadOnlyGlobal("CR_ChainMapFromCocycle"); fi;
+>     return [result,count];
+> end;;
+gap> TargetOnlyGeneratorFixture();
+[ [ [  ], [  ], [  ] ], 3 ]
+gap> Mod2RingGenerators(Rapi,3,3);
+[ [ [ 1, 0, 0 ], [ 0, 1, 0 ], [ 0, 0, 1 ] ], [  ], [  ] ]
+
 # Public 2.1 presentation APIs.  The IT-only forms reuse Rapi through a narrow
 # substitution of the resolution factory; all cohomology and formatting work
 # remains real.  The supplied-resolution forms use the same Rapi directly.
@@ -79,13 +114,47 @@ gap> mod2RingGeneratorDegrees := [];;
 gap> mod2RingGeneratorsWasReadOnly := IsReadOnlyGlobal("Mod2RingGenerators");;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
 gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
+gap> originalConverterBuilder := CR_Mod2CocyclesAndCoboundaries;;
+gap> converterBuilderWasReadOnly := IsReadOnlyGlobal("CR_Mod2CocyclesAndCoboundaries");;
+gap> if converterBuilderWasReadOnly then MakeReadWriteGlobal("CR_Mod2CocyclesAndCoboundaries"); fi;;
+gap> cohomologyConverterCounts := List([1..6],x->0);;
+gap> CR_Mod2CocyclesAndCoboundaries := function(arg) if arg[2] <= 6 then cohomologyConverterCounts[arg[2]]:=cohomologyConverterCounts[arg[2]]+1; fi; return CallFuncList(originalConverterBuilder,arg); end;;
 gap> ContextApi := SGC_CohomologyData(1,Rapi);;
+gap> CR_Mod2CocyclesAndCoboundaries := originalConverterBuilder;;
+gap> if converterBuilderWasReadOnly then MakeReadOnlyGlobal("CR_Mod2CocyclesAndCoboundaries"); fi;;
 gap> Mod2RingGenerators := originalMod2RingGenerators;;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
-gap> mod2RingGeneratorDegrees;
-[  ]
+gap> [mod2RingGeneratorDegrees,cohomologyConverterCounts];
+[ [  ], [ 1, 1, 1, 1, 1, 1 ] ]
 gap> Set(RecNames(ContextApi));
 [ "IT", "isSGCCohomologyContext", "resolution", "ring" ]
+
+# The legacy non-structured helper returns its basis state before constructing
+# presentation-only records.  Suppress its formatted presentation and compare
+# the returned basis sequence with the structured Context result.
+gap> directPresentationPrint := Print;;
+gap> directPresentationPrintWasReadOnly := IsReadOnlyGlobal("Print");;
+gap> if directPresentationPrintWasReadOnly then MakeReadWriteGlobal("Print"); fi;;
+gap> Print := function(arg) return; end;;
+gap> directPresentationBases := Mod2RingGensAndRels(1,3,Rapi,ContextApi.ring.generators.classes);;
+gap> Print := directPresentationPrint;;
+gap> if directPresentationPrintWasReadOnly then MakeReadOnlyGlobal("Print"); fi;;
+gap> directPresentationBases = ContextApi.ring.bases;
+true
+
+# Degree 2 evaluates only upper-triangle products plus each diagonal.  The
+# three left sources therefore receive 3, 2, and 1 prepared right cocycles,
+# while relation order/output remains identical to the full Context result.
+gap> originalPreparedCupProducts := SGC_Mod2CupProductsPrepared;;
+gap> preparedCupProductsWasReadOnly := IsReadOnlyGlobal("SGC_Mod2CupProductsPrepared");;
+gap> if preparedCupProductsWasReadOnly then MakeReadWriteGlobal("SGC_Mod2CupProductsPrepared"); fi;;
+gap> preparedRightCounts := [];;
+gap> SGC_Mod2CupProductsPrepared := function(R,u,vCocycles,p,q,P,N) Add(preparedRightCounts,Length(vCocycles)); return originalPreparedCupProducts(R,u,vCocycles,p,q,P,N); end;;
+gap> TrimmedDegree2 := Mod2RingGensAndRels(fail,3,Rapi,ContextApi.ring.generators.classes,true,2,GENNAMES[1],[C1,C2]);;
+gap> SGC_Mod2CupProductsPrepared := originalPreparedCupProducts;;
+gap> if preparedCupProductsWasReadOnly then MakeReadOnlyGlobal("SGC_Mod2CupProductsPrepared"); fi;;
+gap> [preparedRightCounts,TrimmedDegree2.relations=Filtered(ContextApi.ring.relations,x->x[1]=2)];
+[ [ 3, 2, 1 ], true ]
 gap> cappedContextProbe := CALL_WITH_CATCH(function() return SGC_CohomologyData(1,Rapi,3); end,[]);;
 gap> [cappedContextProbe[1],cappedContextProbe[2].ring.maxRelationDegree,Length(cappedContextProbe[2].ring.bases)];
 [ true, 3, 3 ]
@@ -115,6 +184,13 @@ gap> cohomologyDataWasReadOnly := IsReadOnlyGlobal("SGC_CohomologyData");; wpCoh
 gap> if cohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_CohomologyData"); fi;; if wpCohomologyDataWasReadOnly then MakeReadWriteGlobal("SGC_WPCohomologyData"); fi;;
 gap> SGC_CohomologyData := function(arg) cohomologyDataCalls := cohomologyDataCalls+1; return CallFuncList(originalCohomologyData,arg); end;;
 gap> SGC_WPCohomologyData := function(arg) wpCohomologyDataCalls := wpCohomologyDataCalls+1; return CallFuncList(originalWPCohomologyData,arg); end;;
+gap> savedBreakOnError := BreakOnError;; BreakOnError := false;;
+gap> invalidWPProbe := CALL_WITH_CATCH(function() WPCohomologyClass(1,"1a"); return true; end,[]);;
+Error, WPCohomologyClass: WPs must be a list of Wyckoff-position labels
+gap> BreakOnError := savedBreakOnError;;
+gap> [invalidWPProbe[1],wpCohomologyDataCalls];
+[ false, 0 ]
+gap> cohomologyDataCalls := 0;; wpCohomologyDataCalls := 0;;
 gap> GroupCohomologyMod2(ContextApi);;
 Z2[Ax,Ay,Az]/<R2>
 R2:  Ax^2  Ay^2  Az^2
@@ -150,6 +226,21 @@ gap> WPCohomologyTable(147);;
 2d 0
 3e Ai.Bxy+Az.Bxy
 3f Az.Bxy
+
+# These groups exercise every hand-specialized TopoInvdeg3 formula branch.
+# Their tables pin the optimized precomputed group-word implementation.
+gap> WPCohomologyTable(4);;
+2a Ac.Ax.Az
+gap> WPCohomologyTable(7);;
+2a Am.Ax.Ay
+gap> WPCohomologyTable(9);;
+4a Am.Bxy
+gap> WPCohomologyTable(29);;
+4a Ac.Am.Ay
+gap> WPCohomologyTable(33);;
+4a Am.Bb1
+gap> WPCohomologyTable(76);;
+4a Axy^3
 
 # Test 2: Orthorhombic group
 gap> SpaceGroupCohomologyRingGapInterface(16);
@@ -188,9 +279,11 @@ LSM:
 true
 
 # Test 4: Tetragonal group with degree-4 generator
-gap> mod2RingGeneratorDegrees := [];;
+gap> mod2RingGeneratorDegrees := [];; targetGeneratorRequests := [];;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
 gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
+gap> targetGeneratorHelperWasBound := IsBoundGlobal("SGC_Mod2RingGeneratorsForTargets");;
+gap> if targetGeneratorHelperWasBound then originalTargetGeneratorHelper:=ValueGlobal("SGC_Mod2RingGeneratorsForTargets"); targetGeneratorHelperWasReadOnly:=IsReadOnlyGlobal("SGC_Mod2RingGeneratorsForTargets"); if targetGeneratorHelperWasReadOnly then MakeReadWriteGlobal("SGC_Mod2RingGeneratorsForTargets"); fi; SGC_Mod2RingGeneratorsForTargets:=function(arg) Add(targetGeneratorRequests,ShallowCopy(arg[2])); return CallFuncList(originalTargetGeneratorHelper,arg); end; fi;;
 gap> SpaceGroupCohomologyRingGapInterface(108);
 ===========================================
 Mod-2 Cohomology Ring of Group No. 108:
@@ -209,13 +302,15 @@ LSM:
 true
 gap> Mod2RingGenerators := originalMod2RingGenerators;;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
-gap> mod2RingGeneratorDegrees;
-[ 4 ]
+gap> if targetGeneratorHelperWasBound then SGC_Mod2RingGeneratorsForTargets:=originalTargetGeneratorHelper; if targetGeneratorHelperWasReadOnly then MakeReadOnlyGlobal("SGC_Mod2RingGeneratorsForTargets"); fi; fi;;
+gap> [mod2RingGeneratorDegrees,targetGeneratorRequests];
+[ [  ], [ [ 4 ] ] ]
 
 # Test 5: Cubic group with degree-6 generators
-gap> mod2RingGeneratorDegrees := [];;
+gap> mod2RingGeneratorDegrees := [];; targetGeneratorRequests := [];;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadWriteGlobal("Mod2RingGenerators"); fi;;
 gap> Mod2RingGenerators := function(arg) Add(mod2RingGeneratorDegrees,arg[2]); return CallFuncList(originalMod2RingGenerators,arg); end;;
+gap> if targetGeneratorHelperWasBound then if targetGeneratorHelperWasReadOnly then MakeReadWriteGlobal("SGC_Mod2RingGeneratorsForTargets"); fi; SGC_Mod2RingGeneratorsForTargets:=function(arg) Add(targetGeneratorRequests,ShallowCopy(arg[2])); return CallFuncList(originalTargetGeneratorHelper,arg); end; fi;;
 gap> SpaceGroupCohomologyRingGapInterface(219);
 ===========================================
 Mod-2 Cohomology Ring of Group No. 219:
@@ -238,7 +333,8 @@ LSM:
 true
 gap> Mod2RingGenerators := originalMod2RingGenerators;;
 gap> if mod2RingGeneratorsWasReadOnly then MakeReadOnlyGlobal("Mod2RingGenerators"); fi;;
-gap> mod2RingGeneratorDegrees;
-[ 6 ]
+gap> if targetGeneratorHelperWasBound then SGC_Mod2RingGeneratorsForTargets:=originalTargetGeneratorHelper; if targetGeneratorHelperWasReadOnly then MakeReadOnlyGlobal("SGC_Mod2RingGeneratorsForTargets"); fi; fi;;
+gap> [mod2RingGeneratorDegrees,targetGeneratorRequests];
+[ [  ], [ [ 6 ] ] ]
 
 gap> STOP_TEST("smoke.tst", 0);
