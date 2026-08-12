@@ -2,6 +2,8 @@
 # Load the data tables first (they populate the globals declared in init.g),
 # then load the function library that uses them.
 
+ReadPackage( "SpaceGroupCohomology", "gap/CxyzSin225_polynomial.gi" );
+ReadPackage( "SpaceGroupCohomology", "gap/CgammaSin225_polynomial.gi" );
 ReadPackage( "SpaceGroupCohomology", "gap/Cgammain227_polynomial.gi" );
 ReadPackage( "SpaceGroupCohomology", "gap/Cxyzin229_polynomial.gi" );
 ReadPackage( "SpaceGroupCohomology", "gap/data.gi" );
