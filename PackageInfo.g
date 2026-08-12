@@ -10,7 +10,7 @@ SetPackageInfo( rec(
 
   PackageName    := "SpaceGroupCohomology",
   Subtitle       := "Mod-2 cohomology rings and LSM anomaly classes for the 230 space groups",
-  Version        := "2.2.0",
+  Version        := "2.3.0",
   Date           := "2026-08-09",
   License        := "GPL-2.0-or-later",
 

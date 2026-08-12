@@ -85,7 +85,7 @@ of the mathematical output.
 
 ### Other functions
 
-Version 2.1 also provides three focused, print-only entry points. The
+Version 2.3 also provides three focused, print-only entry points. The
 IT-only forms construct a resolution for the International Tables number
 `IT`; supplying `R` reuses a resolution previously constructed for that same
 space group:
@@ -133,6 +133,11 @@ than this batch baseline because GAP/HAP startup and system load are visible
 at this scale, so treat these numbers as a local reference rather than a
 portable guarantee.
 
+As a more recent regression check, a fresh isolated process for each of
+IT201--IT230 at commit `38c509e` produced byte-identical mathematical output
+to the preceding `e756f65` sweep. Its summed integer elapsed time was 619 s
+versus 639 s, with no individual group taking longer.
+
 ## Layout
 
 ```
@@ -151,30 +156,30 @@ SpaceGroupCohomology/
 │   └── functions.gi    library of cohomology-ring routines
 ├── cpp/                optional sgclinalg accelerator
 └── tst/
-    ├── smoke.tst       package self-test
-    ├── homotopy.tst    resolution/homotopy sanity checks
-    └── linalg.tst      linear-algebra dispatch correctness checks
+    └── smoke.tst       representative public-API self-test
 ```
 
 ## Testing
 
-`tst/smoke.tst` does three things in order:
+The package test is intentionally compact: it makes one pinned representative
+call to each public entry point.
 
-1. A constant-time sanity check that all four data tables have 230 entries.
-2. Public-API presentation checks for the IT and supplied-resolution
-   overloads, including Wyckoff labels and mod-2 cancellation.
-3. Five real cohomology computations — space groups No. 1, 16, 22, 108,
-   and 219 — that exercise the full HAP-backed pipeline end-to-end and pin
-   down the expected output. Any regression in the cup product, relations,
-   or LSM-class code will then surface as a `Test` failure instead of
-   passing silently.
+| Function | Space group | Coverage |
+| --- | ---: | --- |
+| `GroupCohomologyMod2` | 16 | ordinary cohomology-ring presentation |
+| `WPCohomologyTable` | 22 | explicit degree-3 Wyckoff classes |
+| `WPCohomologyClass` | 108 | a nontrivial class with a degree-4 generator |
+| `SpaceGroupCohomologyRingGapInterface` | 219 | full ring-and-LSM path with degree-6 generators |
 
 ```gap
 gap> TestPackage("SpaceGroupCohomology");
 ```
 
-The first item is instantaneous; the pinned computations take about a minute
-on a modern laptop, with group 219 the slowest of the smoke-test groups.
+This takes about 15 seconds on the reference machine. `TestPackage` compares
+up to whitespace, which avoids display-only line-wrap differences in GAP's
+long output. Richer linalg, homotopy, and relation diagnostics are retained
+only as untracked local maintainer files; they are deliberately not part of
+the distributed package test suite.
 
 ## Reference
 
